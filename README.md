@@ -10,7 +10,7 @@
 
 ## 必要要件
 
-- Python 3.10以上
+- Python 3.13以上
 - macOS（アクセシビリティ権限が必要）
 - OpenAI APIキー
 
