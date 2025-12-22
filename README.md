@@ -74,7 +74,3 @@ voice-input --no-paste
 ## コスト
 
 OpenAI Whisper APIの料金は$0.006/分です。月100分使用しても約$0.60と、非常に低コストで運用できます。
-
-## ライセンス
-
-MIT License
