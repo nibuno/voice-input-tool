@@ -6,9 +6,9 @@ from pynput import keyboard
 
 
 class HotkeyListener:
-    """Global hotkey listener for Left Option key (hold-to-record).
+    """Global hotkey listener for Left Control key (hold-to-record).
 
-    Detects when the Left Option key is pressed and released,
+    Detects when the Left Control key is pressed and released,
     triggering callbacks for each event.
     """
 
@@ -20,8 +20,8 @@ class HotkeyListener:
         """Initialize the hotkey listener.
 
         Args:
-            on_press: Callback when Left Option key is pressed.
-            on_release: Callback when Left Option key is released.
+            on_press: Callback when Left Control key is pressed.
+            on_release: Callback when Left Control key is released.
         """
         self._on_press = on_press
         self._on_release = on_release
@@ -30,13 +30,13 @@ class HotkeyListener:
 
     def _handle_press(self, key: keyboard.Key | keyboard.KeyCode) -> None:
         """Handle key press events."""
-        if key == keyboard.Key.alt_l and not self._is_pressed:
+        if key == keyboard.Key.ctrl_l and not self._is_pressed:
             self._is_pressed = True
             self._on_press()
 
     def _handle_release(self, key: keyboard.Key | keyboard.KeyCode) -> None:
         """Handle key release events."""
-        if key == keyboard.Key.alt_l and self._is_pressed:
+        if key == keyboard.Key.ctrl_l and self._is_pressed:
             self._is_pressed = False
             self._on_release()
 
