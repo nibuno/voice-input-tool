@@ -5,7 +5,8 @@ import threading
 
 import rumps
 
-from .hotkey import HotkeyListener
+from .config import load_config, save_config
+from .hotkey import HOTKEY_NAMES, HotkeyListener
 from .output import output_text
 from .recorder import SAMPLE_RATE, StreamingRecorder, save_audio
 from .transcriber import transcribe
@@ -23,22 +24,56 @@ class VoiceInputApp(rumps.App):
             title="Voice Input",
         )
 
+        # Load config
+        self._config = load_config()
+        self._current_hotkey = self._config.get("hotkey", "ctrl_l")
+
         self.recorder = StreamingRecorder()
         self._event_queue: queue.Queue[str] = queue.Queue()
 
         self.hotkey_listener = HotkeyListener(
             on_press=lambda: self._event_queue.put("start"),
             on_release=lambda: self._event_queue.put("stop"),
+            hotkey=self._current_hotkey,
         )
 
         # Menu items
         self.status_item = rumps.MenuItem("Status: Ready")
+
+        # Hotkey submenu
+        self.hotkey_menu = rumps.MenuItem("Hotkey")
+        self._hotkey_items = {}
+        for key_id, key_name in HOTKEY_NAMES.items():
+            item = rumps.MenuItem(key_name, callback=self._on_hotkey_selected)
+            item.key_id = key_id  # Store key_id for callback
+            if key_id == self._current_hotkey:
+                item.state = 1  # Checkmark
+            self._hotkey_items[key_id] = item
+            self.hotkey_menu.add(item)
+
         self.menu = [
             self.status_item,
             None,  # Separator
-            rumps.MenuItem("Hotkey: Left Option (hold)"),
+            self.hotkey_menu,
             rumps.MenuItem("Language: Japanese"),
         ]
+
+    def _on_hotkey_selected(self, sender: rumps.MenuItem) -> None:
+        """Handle hotkey selection from menu."""
+        key_id = sender.key_id
+
+        # Update checkmarks
+        for item in self._hotkey_items.values():
+            item.state = 0
+        sender.state = 1
+
+        # Update hotkey listener
+        self._current_hotkey = key_id
+        self.hotkey_listener.set_hotkey(key_id)
+
+        # Save config
+        self._config["hotkey"] = key_id
+        save_config(self._config)
 
     @rumps.timer(0.05)
     def _check_events(self, _sender: object) -> None:
