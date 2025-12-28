@@ -3,6 +3,7 @@
 import queue
 import threading
 
+import numpy as np
 import rumps
 
 from .config import load_config, save_config
@@ -14,19 +15,27 @@ from .transcriber import transcribe
 # Minimum recording duration in seconds
 MIN_RECORDING_SECONDS = 0.3
 
+# Minimum RMS (root mean square) amplitude to consider as speech
+# int16 audio ranges from -32768 to 32767
+# This threshold filters out silence and very quiet recordings
+MIN_RMS_THRESHOLD = 100
+
 
 class VoiceInputApp(rumps.App):
     """Mac menu bar application for voice input using Whisper API."""
 
-    def __init__(self) -> None:
+    def __init__(self, debug: bool = False) -> None:
         super().__init__(
             name="Voice Input",
             title="Voice Input",
         )
 
+        self._debug = debug
+
         # Load config
         self._config = load_config()
         self._current_hotkey = self._config.get("hotkey", "ctrl_l")
+        self._rms_threshold = self._config.get("rms_threshold", MIN_RMS_THRESHOLD)
 
         self.recorder = StreamingRecorder()
         self._event_queue: queue.Queue[str] = queue.Queue()
@@ -127,6 +136,14 @@ class VoiceInputApp(rumps.App):
             self._event_queue.put("status:Ready (too short)")
             return
 
+        # Check if audio is too quiet (likely no speech)
+        rms = np.sqrt(np.mean(audio_data.astype(np.float64) ** 2))
+        if self._debug:
+            print(f"[DEBUG] RMS: {rms:.2f} (threshold: {self._rms_threshold})")
+        if rms < self._rms_threshold:
+            self._event_queue.put("status:Ready (no audio)")
+            return
+
         try:
             audio_path = save_audio(audio_data)
             text = transcribe(audio_path)
@@ -149,9 +166,14 @@ class VoiceInputApp(rumps.App):
 
 def main() -> None:
     """Entry point for menu bar app."""
+    import argparse
     import os
 
     from dotenv import load_dotenv
+
+    parser = argparse.ArgumentParser(description="Voice Input - Mac menu bar app")
+    parser.add_argument("--debug", action="store_true", help="Enable debug output")
+    args = parser.parse_args()
 
     load_dotenv()
 
@@ -160,7 +182,7 @@ def main() -> None:
         print("Please create a .env file with your API key")
         return
 
-    app = VoiceInputApp()
+    app = VoiceInputApp(debug=args.debug)
     app.run()
 
 

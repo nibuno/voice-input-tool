@@ -8,6 +8,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULT_CONFIG = {
     "hotkey": "ctrl_l",
+    "rms_threshold": 100,
 }
 
 VALID_HOTKEYS = ["ctrl_l", "ctrl_r", "alt_l", "alt_r"]
