@@ -55,6 +55,14 @@ OPENAI_API_KEY=sk-your-api-key-here
 
 ## 使い方
 
+### 仮想環境の有効化
+
+ターミナルからコマンドを実行する前に、仮想環境を有効化してください:
+
+```bash
+source .venv/bin/activate
+```
+
 ### メニューバーアプリ（推奨）
 
 ```bash
