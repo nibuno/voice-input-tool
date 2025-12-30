@@ -30,7 +30,15 @@ class StreamingRecorder:
         time: object,
         status: sd.CallbackFlags,
     ) -> None:
-        """Called by sounddevice for each audio chunk."""
+        """Called by sounddevice for each audio chunk.
+
+        Note:
+            frames, time, status are required by sounddevice's callback
+            signature but not used in this implementation.
+            - frames: same as len(indata), redundant
+            - time: timestamp info, not needed for simple recording
+            - status: error flags (e.g. overflow), currently ignored
+        """
         if self._is_recording:
             with self._lock:
                 self._buffer.append(indata.copy())
