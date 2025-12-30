@@ -55,36 +55,61 @@ OPENAI_API_KEY=sk-your-api-key-here
 
 ## 使い方
 
-### 仮想環境の有効化
+### 起動方法
 
-ターミナルからコマンドを実行する前に、仮想環境を有効化してください:
+#### 方法1: 直接実行（推奨）
+
+仮想環境を有効化せずに、直接コマンドを実行できます:
+
+```bash
+# メニューバーアプリを起動
+.venv/bin/voice-input-app
+
+# CLIを起動
+.venv/bin/voice-input
+```
+
+#### 方法2: 仮想環境を有効化してから実行
 
 ```bash
 source .venv/bin/activate
+voice-input-app  # または voice-input
 ```
 
-### メニューバーアプリ（推奨）
+#### シェルエイリアスの設定（任意）
+
+毎回パスを入力するのが手間な場合、シェルエイリアスを設定すると便利です。
+
+`~/.zshrc`（または `~/.bashrc`）に以下を追加:
 
 ```bash
-voice-input-app
+alias voice="/path/to/voice-input-tool/.venv/bin/voice-input-app"
 ```
+
+設定後、ターミナルを再起動するか `source ~/.zshrc` を実行すると、`voice` コマンドで起動できます。
+
+### メニューバーアプリの使い方
+
+`voice-input-app` を起動すると:
 
 - メニューバーに「Voice Input」が表示されます
 - 設定したホットキー（デフォルト: **左Control**）を押している間、録音されます
 - キーを離すと、自動で文字起こし → ペーストされます
 - メニューの「Hotkey」からホットキーを変更できます（設定は自動保存）
 
-### CLI
+### CLIの使い方
+
+`voice-input` コマンドは指定した秒数だけ録音し、テキストに変換します。
 
 ```bash
 # 基本的な使い方（5秒間録音）
-voice-input
+.venv/bin/voice-input
 
 # 録音時間を指定（例: 10秒）
-voice-input -d 10
+.venv/bin/voice-input -d 10
 
 # クリップボードにコピーのみ（ペーストしない）
-voice-input --no-paste
+.venv/bin/voice-input --no-paste
 ```
 
 ### CLIオプション
