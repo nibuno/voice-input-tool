@@ -41,6 +41,13 @@ def transcribe(audio_path: Path, language: str = "ja") -> str:
                 model="whisper-1",
                 file=audio_file,
                 language=language,
+                # temperature=0: ハルシネーション対策
+                # Whisperは曖昧な音声に対して「ご視聴ありがとうございました」等の
+                # トレーニングデータ由来のフレーズを誤出力することがある。
+                # temperature=0にすると最も確率の高いトークンのみを選択し、
+                # ランダム性を排除することでハルシネーションを軽減できる。
+                # See: https://github.com/nibuno/voice-input-tool/issues/8
+                temperature=0,
             )
         elapsed = time.time() - start_time
         logger.info(f"Transcriber: API call completed in {elapsed:.2f}s")
