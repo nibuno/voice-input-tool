@@ -8,7 +8,11 @@ import numpy as np
 import sounddevice as sd
 from scipy.io import wavfile
 
+from .logger import get_logger
+
 SAMPLE_RATE = 16000  # Whisper expects 16kHz
+
+logger = get_logger()
 
 
 class StreamingRecorder:
@@ -39,23 +43,33 @@ class StreamingRecorder:
             - time: timestamp info, not needed for simple recording
             - status: error flags (e.g. overflow), currently ignored
         """
+        # Log audio stream status if there's an issue
+        if status:
+            logger.warning(f"Audio callback status: {status}")
+
         if self._is_recording:
             with self._lock:
                 self._buffer.append(indata.copy())
 
     def start(self) -> None:
         """Start recording audio."""
-        with self._lock:
-            self._buffer.clear()
-            self._is_recording = True
+        logger.info("Recording started")
+        try:
+            with self._lock:
+                self._buffer.clear()
+                self._is_recording = True
 
-        self._stream = sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype=np.int16,
-            callback=self._audio_callback,
-        )
-        self._stream.start()
+            self._stream = sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype=np.int16,
+                callback=self._audio_callback,
+            )
+            self._stream.start()
+            logger.debug("Audio stream opened successfully")
+        except Exception as e:
+            logger.exception(f"Failed to start recording: {e}")
+            raise
 
     def stop(self) -> np.ndarray:
         """Stop recording and return audio data.
@@ -63,16 +77,30 @@ class StreamingRecorder:
         Returns:
             Audio data as numpy array (int16).
         """
-        self._is_recording = False
-        if self._stream:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+        logger.info("Recording stopped")
+        try:
+            self._is_recording = False
+            if self._stream:
+                self._stream.stop()
+                self._stream.close()
+                self._stream = None
+                logger.debug("Audio stream closed successfully")
 
-        with self._lock:
-            if not self._buffer:
-                return np.array([], dtype=np.int16)
-            return np.concatenate(self._buffer, axis=0)
+            with self._lock:
+                buffer_count = len(self._buffer)
+                if not self._buffer:
+                    logger.debug("Recording buffer is empty")
+                    return np.array([], dtype=np.int16)
+                audio_data = np.concatenate(self._buffer, axis=0)
+                duration_sec = len(audio_data) / SAMPLE_RATE
+                logger.info(
+                    f"Recording complete: {buffer_count} chunks, "
+                    f"{len(audio_data)} samples, {duration_sec:.2f}s"
+                )
+                return audio_data
+        except Exception as e:
+            logger.exception(f"Failed to stop recording: {e}")
+            raise
 
     @property
     def is_recording(self) -> bool:
@@ -89,9 +117,17 @@ def save_audio(audio: np.ndarray) -> Path:
     Returns:
         Path to the saved WAV file.
     """
-    temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-    wavfile.write(temp_file.name, SAMPLE_RATE, audio)
-    return Path(temp_file.name)
+    try:
+        temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        temp_path = Path(temp_file.name)
+        temp_file.close()  # Close file handle before writing
+        wavfile.write(str(temp_path), SAMPLE_RATE, audio)
+        file_size = temp_path.stat().st_size
+        logger.debug(f"Audio saved to {temp_path} ({file_size} bytes)")
+        return temp_path
+    except Exception as e:
+        logger.exception(f"Failed to save audio: {e}")
+        raise
 
 
 # Legacy functions for CLI compatibility

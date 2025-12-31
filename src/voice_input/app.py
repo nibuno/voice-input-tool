@@ -8,9 +8,12 @@ import rumps
 
 from .config import load_config, save_config
 from .hotkey import HOTKEY_NAMES, HotkeyListener
+from .logger import get_logger
 from .output import output_text
 from .recorder import SAMPLE_RATE, StreamingRecorder, save_audio
 from .transcriber import transcribe
+
+logger = get_logger()
 
 # Minimum recording duration in seconds
 MIN_RECORDING_SECONDS = 0.3
@@ -112,54 +115,82 @@ class VoiceInputApp(rumps.App):
 
     def _start_recording(self) -> None:
         """Start recording audio."""
-        self.title = "Recording..."
-        self.status_item.title = "Status: Recording..."
-        self.recorder.start()
+        logger.info("App: Start recording triggered")
+        try:
+            self.title = "Recording..."
+            self.status_item.title = "Status: Recording..."
+            self.recorder.start()
+        except Exception as e:
+            logger.exception(f"App: Failed to start recording: {e}")
+            self._event_queue.put(f"error:{e}")
 
     def _stop_recording(self) -> None:
         """Stop recording and process audio."""
-        audio_data = self.recorder.stop()
-        self.title = "Processing..."
-        self.status_item.title = "Status: Processing..."
+        logger.info("App: Stop recording triggered")
+        try:
+            audio_data = self.recorder.stop()
+            self.title = "Processing..."
+            self.status_item.title = "Status: Processing..."
 
-        # Process in background thread
-        threading.Thread(
-            target=self._process_audio,
-            args=(audio_data,),
-            daemon=True,
-        ).start()
+            # Process in background thread
+            logger.debug("App: Starting audio processing thread")
+            threading.Thread(
+                target=self._process_audio,
+                args=(audio_data,),
+                daemon=True,
+            ).start()
+        except Exception as e:
+            logger.exception(f"App: Failed to stop recording: {e}")
+            self._event_queue.put(f"error:{e}")
 
     def _process_audio(self, audio_data) -> None:
         """Transcribe audio and output text (runs in background thread)."""
+        logger.debug(f"App: Processing audio data ({len(audio_data)} samples)")
+
         # Check minimum duration
         if len(audio_data) < SAMPLE_RATE * MIN_RECORDING_SECONDS:
+            logger.info("App: Recording too short, skipping")
             self._event_queue.put("status:Ready (too short)")
             return
 
         # Check if audio is too quiet (likely no speech)
         rms = np.sqrt(np.mean(audio_data.astype(np.float64) ** 2))
+        logger.debug(f"App: RMS={rms:.2f}, threshold={self._rms_threshold}")
         if self._debug:
             print(f"[DEBUG] RMS: {rms:.2f} (threshold: {self._rms_threshold})")
         if rms < self._rms_threshold:
+            logger.info("App: Audio too quiet, skipping")
             self._event_queue.put("status:Ready (no audio)")
             return
 
         try:
+            logger.debug("App: Saving audio to file")
             audio_path = save_audio(audio_data)
+
+            logger.info("App: Starting transcription")
             text = transcribe(audio_path)
+            logger.info(f"App: Transcription complete ({len(text)} chars)")
+
             audio_path.unlink(missing_ok=True)
+            logger.debug("App: Temporary audio file deleted")
 
             if text and text.strip():
+                logger.debug("App: Outputting text")
                 output_text(text)
                 self._event_queue.put("status:Ready")
+                logger.info("App: Processing complete")
             else:
+                logger.info("App: No speech detected in transcription")
                 self._event_queue.put("status:Ready (no speech)")
 
         except Exception as e:
+            logger.exception(f"App: Error during audio processing: {e}")
             self._event_queue.put(f"error:{e}")
 
     def run(self) -> None:
         """Start the app and hotkey listener."""
+        logger.info("App: Starting Voice Input application")
+        logger.info(f"App: Hotkey={self._current_hotkey}, RMS threshold={self._rms_threshold}")
         self.hotkey_listener.start()
         super().run()
 
