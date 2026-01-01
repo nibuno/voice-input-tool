@@ -34,7 +34,6 @@ a = Analysis(
         "numpy",
         "openai",
         "pyperclip",
-        "pyautogui",
         "dotenv",
         "httpx",
         "httpcore",

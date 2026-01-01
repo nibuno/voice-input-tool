@@ -24,7 +24,6 @@ OPTIONS = {
         "numpy",
         "openai",
         "pyperclip",
-        "pyautogui",
         "dotenv",
     ],
     "includes": [
