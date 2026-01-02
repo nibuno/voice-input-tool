@@ -56,13 +56,20 @@ class StreamingRecorder:
         """Start recording audio."""
         logger.info("Recording started")
         try:
+            # Check existing stream state
+            logger.debug(f"Existing stream: {self._stream}")
+
             # Clear queue
+            logger.debug("Clearing queue...")
             while not self._queue.empty():
                 try:
                     self._queue.get_nowait()
                 except queue.Empty:
                     break
+            logger.debug("Queue cleared")
+
             self._is_recording = True
+            logger.debug("Creating InputStream...")
 
             self._stream = sd.InputStream(
                 samplerate=SAMPLE_RATE,
@@ -70,6 +77,8 @@ class StreamingRecorder:
                 dtype=np.int16,
                 callback=self._audio_callback,
             )
+            logger.debug("InputStream created, starting...")
+
             self._stream.start()
             logger.debug("Audio stream opened successfully")
         except Exception as e:
