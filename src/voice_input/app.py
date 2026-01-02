@@ -198,13 +198,19 @@ class VoiceInputApp(rumps.App):
 def main() -> None:
     """Entry point for menu bar app."""
     import argparse
+    import logging
     import os
 
     from dotenv import load_dotenv
 
+    from .logger import set_console_log_level
+
     parser = argparse.ArgumentParser(description="Voice Input - Mac menu bar app")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
     args = parser.parse_args()
+
+    if args.debug:
+        set_console_log_level(logging.DEBUG)
 
     load_dotenv()
 
