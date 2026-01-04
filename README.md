@@ -119,6 +119,22 @@ alias voice="/path/to/voice-input-tool/.venv/bin/voice-input-app"
 | `-d`, `--duration` | 録音時間（秒） | 5.0 |
 | `--no-paste` | 自動ペーストを無効化 | false |
 
+## macOS アプリとしてビルド
+
+スタンドアロンの macOS アプリとしてビルドできます。
+
+```bash
+# PyInstaller をインストール
+uv pip install pyinstaller
+
+# ビルド実行
+uv run pyinstaller VoiceInput.spec -y
+```
+
+ビルド後、`dist/VoiceInput.app` が作成されます。`/Applications/` にコピーして使用できます。
+
+詳細は [docs/build.md](docs/build.md) を参照してください。
+
 ## コスト
 
 OpenAI Whisper APIの料金は$0.006/分です。月100分使用しても約$0.60と、非常に低コストで運用できます。

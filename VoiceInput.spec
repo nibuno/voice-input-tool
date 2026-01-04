@@ -10,7 +10,7 @@ block_cipher = None
 src_path = Path("src").absolute()
 
 a = Analysis(
-    ["src/voice_input/app.py"],
+    ["src/voice_input/__main__.py"],
     pathex=[str(src_path)],
     binaries=[],
     datas=[],
