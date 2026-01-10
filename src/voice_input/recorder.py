@@ -13,6 +13,7 @@ from .logger import get_logger
 
 SAMPLE_RATE = 16000  # Whisper expects 16kHz
 ABORT_TIMEOUT = 1.0  # Timeout for stream.abort() in seconds
+CLOSE_TIMEOUT = 1.0  # Timeout for stream.close() in seconds
 
 logger = get_logger()
 
@@ -27,7 +28,7 @@ class StreamingRecorder:
     def __init__(self) -> None:
         self._queue: queue.Queue[np.ndarray] = queue.Queue()
         self._stream: sd.InputStream | None = None
-        self._is_recording: bool = False
+        self.is_recording: bool = False
 
     def _audio_callback(
         self,
@@ -49,7 +50,7 @@ class StreamingRecorder:
         if status:
             logger.warning(f"Audio callback status: {status}")
 
-        if self._is_recording:
+        if self.is_recording:
             self._queue.put_nowait(indata.copy())
 
     def start(self) -> None:
@@ -68,7 +69,7 @@ class StreamingRecorder:
                     break
             logger.debug("Queue cleared")
 
-            self._is_recording = True
+            self.is_recording = True
             logger.debug("Creating InputStream...")
 
             self._stream = sd.InputStream(
@@ -119,7 +120,7 @@ class StreamingRecorder:
         """
         logger.info("Recording stopped")
         try:
-            self._is_recording = False
+            self.is_recording = False
             if self._stream:
                 logger.debug("Stopping audio stream...")
                 abort_success = self._abort_with_timeout()
@@ -161,11 +162,6 @@ class StreamingRecorder:
         except Exception as e:
             logger.exception(f"Failed to stop recording: {e}")
             raise
-
-    @property
-    def is_recording(self) -> bool:
-        """Return whether recording is in progress."""
-        return self._is_recording
 
 
 def save_audio(audio: np.ndarray) -> Path:
