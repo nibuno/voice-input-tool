@@ -53,38 +53,43 @@ class StreamingRecorder:
         if self.is_recording:
             self._queue.put_nowait(indata.copy())
 
+    def initialize(self) -> None:
+        """Initialize the audio stream (call once at app startup).
+
+        The stream is created in stopped state. Call start() to begin recording.
+        """
+        if self._stream is not None:
+            raise RuntimeError("Stream already initialized")
+
+        logger.info("Initializing audio stream...")
+        self._stream = sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype=np.int16,
+            callback=self._audio_callback,
+        )
+        # Stream is created but not started (microphone not active)
+        logger.info("Audio stream initialized successfully")
+
     def start(self) -> None:
-        """Start recording audio."""
+        """Start recording audio.
+
+        Requires initialize() to be called first.
+        Resumes the stream and begins capturing audio.
+        """
+        if not self.is_initialized:
+            raise RuntimeError("Stream not initialized. Call initialize() first.")
+
+        # Clear queue
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                break
+
+        self.is_recording = True
+        self._stream.start()  # Resume stream (activates microphone)
         logger.info("Recording started")
-        try:
-            # Check existing stream state
-            logger.debug(f"Existing stream: {self._stream}")
-
-            # Clear queue
-            logger.debug("Clearing queue...")
-            while not self._queue.empty():
-                try:
-                    self._queue.get_nowait()
-                except queue.Empty:
-                    break
-            logger.debug("Queue cleared")
-
-            self.is_recording = True
-            logger.debug("Creating InputStream...")
-
-            self._stream = sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                channels=1,
-                dtype=np.int16,
-                callback=self._audio_callback,
-            )
-            logger.debug("InputStream created, starting...")
-
-            self._stream.start()
-            logger.debug("Audio stream opened successfully")
-        except Exception as e:
-            logger.exception(f"Failed to start recording: {e}")
-            raise
 
     def _abort_with_timeout(self) -> bool:
         """Abort stream with timeout to prevent hanging.
@@ -112,56 +117,66 @@ class StreamingRecorder:
             return False
         return True
 
+    def cleanup(self) -> None:
+        """Clean up audio stream resources (call at app shutdown)."""
+        logger.info("Cleaning up audio stream...")
+        self.is_recording = False
+
+        if self._stream is None:
+            return
+
+        abort_success = self._abort_with_timeout()
+        if abort_success:
+            try:
+                self._stream.close()
+            except Exception as e:
+                logger.warning(f"Exception in close: {e}")
+
+        self._stream = None
+        logger.info("Audio stream cleanup complete")
+
+    @property
+    def is_initialized(self) -> bool:
+        """Check if the stream is initialized (may be stopped or running)."""
+        return self._stream is not None
+
     def stop(self) -> np.ndarray:
         """Stop recording and return audio data.
+
+        Pauses the stream (deactivates microphone) and returns captured audio.
 
         Returns:
             Audio data as numpy array (int16).
         """
+        self.is_recording = False
+
+        # Pause stream (deactivates microphone)
+        if self._stream is not None:
+            self._stream.stop()
+
         logger.info("Recording stopped")
-        try:
-            self.is_recording = False
-            if self._stream:
-                logger.debug("Stopping audio stream...")
-                abort_success = self._abort_with_timeout()
-                if abort_success:
-                    logger.debug("Audio stream aborted, closing...")
-                    try:
-                        self._stream.close()
-                    except Exception as e:
-                        logger.warning(f"Exception in close: {e}")
-                    logger.debug("Audio stream closed successfully")
-                else:
-                    logger.warning("Skipping close() due to abort timeout")
-                self._stream = None
 
-            # Collect data from queue
-            logger.debug("Collecting data from queue...")
-            chunks: list[np.ndarray] = []
-            while True:
-                try:
-                    chunk = self._queue.get_nowait()
-                    chunks.append(chunk)
-                except queue.Empty:
-                    break
+        # Collect data from queue
+        chunks: list[np.ndarray] = []
+        while True:
+            try:
+                chunk = self._queue.get_nowait()
+                chunks.append(chunk)
+            except queue.Empty:
+                break
 
-            buffer_count = len(chunks)
-            if not chunks:
-                logger.debug("Recording buffer is empty")
-                return np.array([], dtype=np.int16)
+        buffer_count = len(chunks)
+        if not chunks:
+            logger.debug("Recording buffer is empty")
+            return np.array([], dtype=np.int16)
 
-            logger.debug(f"Concatenating {buffer_count} chunks...")
-            audio_data = np.concatenate(chunks, axis=0)
-            logger.debug("Concatenation complete")
-            duration_sec = len(audio_data) / SAMPLE_RATE
-            logger.info(
-                f"Recording complete: {buffer_count} chunks, "
-                f"{len(audio_data)} samples, {duration_sec:.2f}s"
-            )
-            return audio_data
-        except Exception as e:
-            logger.exception(f"Failed to stop recording: {e}")
-            raise
+        audio_data = np.concatenate(chunks, axis=0)
+        duration_sec = len(audio_data) / SAMPLE_RATE
+        logger.info(
+            f"Recording complete: {buffer_count} chunks, "
+            f"{len(audio_data)} samples, {duration_sec:.2f}s"
+        )
+        return audio_data
 
 
 def save_audio(audio: np.ndarray) -> Path:

@@ -1,5 +1,6 @@
 """Mac menu bar application for voice input."""
 
+import atexit
 import queue
 import threading
 
@@ -116,6 +117,12 @@ class VoiceInputApp(rumps.App):
     def _start_recording(self) -> None:
         """Start recording audio."""
         logger.info("App: Start recording triggered")
+
+        if not self.recorder.is_initialized:
+            logger.error("App: Recorder not initialized")
+            self._event_queue.put("error:Audio stream not initialized")
+            return
+
         try:
             self.title = "Recording..."
             self.status_item.title = "Status: Recording..."
@@ -187,10 +194,33 @@ class VoiceInputApp(rumps.App):
             logger.exception(f"App: Error during audio processing: {e}")
             self._event_queue.put(f"error:{e}")
 
+    def _cleanup(self) -> None:
+        """Clean up resources on app termination."""
+        logger.info("App: Cleanup triggered")
+        self.hotkey_listener.stop()
+        self.recorder.cleanup()
+        logger.info("App: Cleanup complete")
+
     def run(self) -> None:
         """Start the app and hotkey listener."""
         logger.info("App: Starting Voice Input application")
         logger.info(f"App: Hotkey={self._current_hotkey}, RMS threshold={self._rms_threshold}")
+
+        # Initialize audio stream
+        try:
+            self.recorder.initialize()
+        except Exception as e:
+            logger.exception(f"App: Failed to initialize audio stream: {e}")
+            rumps.notification(
+                title="Voice Input Error",
+                subtitle="Failed to start",
+                message=f"Audio initialization failed: {e}",
+            )
+            return
+
+        # Register cleanup handler
+        atexit.register(self._cleanup)
+
         self.hotkey_listener.start()
         super().run()
 
