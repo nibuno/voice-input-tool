@@ -24,7 +24,7 @@ voice-input-app = "voice_input.app:main"
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0.0",
+    "pytest",
 ]
 
 [tool.hatch.build.targets.wheel]

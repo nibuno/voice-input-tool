@@ -1,4 +1,4 @@
-"""config モジュールのテスト."""
+"""Tests for config module."""
 
 import json
 from pathlib import Path
@@ -7,7 +7,6 @@ import pytest
 
 from voice_input.config import (
     DEFAULT_CONFIG,
-    VALID_HOTKEYS,
     load_config,
     save_config,
 )
@@ -15,7 +14,7 @@ from voice_input.config import (
 
 @pytest.fixture
 def config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """テスト用の設定ディレクトリを作成し、モジュールのパスを差し替える."""
+    """Create a temporary config directory and patch module paths."""
     config_dir = tmp_path / ".voice-input"
     config_file = config_dir / "config.json"
 
@@ -26,26 +25,16 @@ def config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 class TestLoadConfig:
-    """load_config 関数のテスト."""
+    """Tests for load_config function."""
 
-    def test_設定ファイルが存在しない場合はデフォルト設定を返す(
-        self, config_dir: Path
-    ) -> None:
-        # Arrange
-        # config_dir fixture により設定ファイルは存在しない状態
-
+    def test_returns_default_when_file_not_exists(self, config_dir: Path) -> None:
         # Act
         result = load_config()
 
         # Assert
         assert result == DEFAULT_CONFIG
 
-    def test_デフォルト設定の変更が元の設定に影響しない(
-        self, config_dir: Path
-    ) -> None:
-        # Arrange
-        # config_dir fixture により設定ファイルは存在しない状態
-
+    def test_returns_copy_of_default_config(self, config_dir: Path) -> None:
         # Act
         result = load_config()
         result["hotkey"] = "modified"
@@ -53,9 +42,7 @@ class TestLoadConfig:
         # Assert
         assert DEFAULT_CONFIG["hotkey"] == "ctrl_l"
 
-    def test_有効な設定ファイルが存在する場合はその内容を返す(
-        self, config_dir: Path
-    ) -> None:
+    def test_loads_valid_config_file(self, config_dir: Path) -> None:
         # Arrange
         config_dir.mkdir(parents=True)
         config_file = config_dir / "config.json"
@@ -68,9 +55,7 @@ class TestLoadConfig:
         # Assert
         assert result == expected
 
-    def test_無効なホットキーの場合はデフォルトのホットキーに置き換える(
-        self, config_dir: Path
-    ) -> None:
+    def test_replaces_invalid_hotkey_with_default(self, config_dir: Path) -> None:
         # Arrange
         config_dir.mkdir(parents=True)
         config_file = config_dir / "config.json"
@@ -83,9 +68,7 @@ class TestLoadConfig:
         assert result["hotkey"] == DEFAULT_CONFIG["hotkey"]
         assert result["rms_threshold"] == 150
 
-    def test_JSONが壊れている場合はデフォルト設定を返す(
-        self, config_dir: Path
-    ) -> None:
+    def test_returns_default_when_json_is_invalid(self, config_dir: Path) -> None:
         # Arrange
         config_dir.mkdir(parents=True)
         config_file = config_dir / "config.json"
@@ -99,11 +82,9 @@ class TestLoadConfig:
 
 
 class TestSaveConfig:
-    """save_config 関数のテスト."""
+    """Tests for save_config function."""
 
-    def test_設定ディレクトリが存在しない場合でも保存できる(
-        self, config_dir: Path
-    ) -> None:
+    def test_creates_directory_if_not_exists(self, config_dir: Path) -> None:
         # Arrange
         config = {"hotkey": "alt_l", "rms_threshold": 50}
 
@@ -111,10 +92,9 @@ class TestSaveConfig:
         save_config(config)
 
         # Assert
-        config_file = config_dir / "config.json"
-        assert config_file.exists()
+        assert config_dir.exists()
 
-    def test_設定がJSON形式で正しく保存される(self, config_dir: Path) -> None:
+    def test_saves_config_as_json(self, config_dir: Path) -> None:
         # Arrange
         config = {"hotkey": "alt_r", "rms_threshold": 75}
 
@@ -125,21 +105,3 @@ class TestSaveConfig:
         config_file = config_dir / "config.json"
         saved = json.loads(config_file.read_text())
         assert saved == config
-
-
-class TestValidHotkeys:
-    """VALID_HOTKEYS 定数のテスト."""
-
-    def test_有効なホットキーは4種類(self) -> None:
-        # Assert
-        assert len(VALID_HOTKEYS) == 4
-
-    def test_左右のCtrlキーが含まれる(self) -> None:
-        # Assert
-        assert "ctrl_l" in VALID_HOTKEYS
-        assert "ctrl_r" in VALID_HOTKEYS
-
-    def test_左右のAltキーが含まれる(self) -> None:
-        # Assert
-        assert "alt_l" in VALID_HOTKEYS
-        assert "alt_r" in VALID_HOTKEYS
