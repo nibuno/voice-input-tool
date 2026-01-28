@@ -22,5 +22,13 @@ dependencies = [
 voice-input = "voice_input.main:main"
 voice-input-app = "voice_input.app:main"
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/voice_input"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
