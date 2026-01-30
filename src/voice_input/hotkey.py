@@ -45,7 +45,7 @@ class HotkeyListener:
         self._on_release = on_release
         self._hotkey = HOTKEY_MAP.get(hotkey, keyboard.Key.ctrl_l)
         self._listener: keyboard.Listener | None = None
-        self._is_pressed = False  # Debounce flag
+        self._is_pressed = False  # Debounce flag to prevent key repeat
 
     def set_hotkey(self, hotkey: str) -> None:
         """Change the hotkey.
@@ -58,13 +58,21 @@ class HotkeyListener:
         self._is_pressed = False
 
     def _handle_press(self, key: keyboard.Key | keyboard.KeyCode) -> None:
-        """Handle key press events."""
+        """Handle key press events.
+
+        Only triggers callback if the key matches and not already pressed.
+        The _is_pressed check prevents OS key repeat from triggering multiple times.
+        """
         if key == self._hotkey and not self._is_pressed:
             self._is_pressed = True
             self._on_press()
 
     def _handle_release(self, key: keyboard.Key | keyboard.KeyCode) -> None:
-        """Handle key release events."""
+        """Handle key release events.
+
+        Only triggers callback if the key matches and was previously pressed.
+        This ensures release only fires after a valid press event.
+        """
         if key == self._hotkey and self._is_pressed:
             self._is_pressed = False
             self._on_release()
