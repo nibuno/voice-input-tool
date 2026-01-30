@@ -5,7 +5,9 @@ import queue
 import threading
 
 import numpy as np
+import openai
 import rumps
+import sounddevice as sd
 
 from .config import load_config, save_config
 from .hotkey import HOTKEY_NAMES, HotkeyListener
@@ -127,7 +129,7 @@ class VoiceInputApp(rumps.App):
             self.title = "Recording..."
             self.status_item.title = "Status: Recording..."
             self.recorder.start()
-        except Exception as e:
+        except (RuntimeError, sd.PortAudioError) as e:
             logger.exception(f"App: Failed to start recording: {e}")
             self._event_queue.put(f"error:{e}")
 
@@ -146,7 +148,7 @@ class VoiceInputApp(rumps.App):
                 args=(audio_data,),
                 daemon=True,
             ).start()
-        except Exception as e:
+        except sd.PortAudioError as e:
             logger.exception(f"App: Failed to stop recording: {e}")
             self._event_queue.put(f"error:{e}")
 
@@ -190,7 +192,7 @@ class VoiceInputApp(rumps.App):
                 logger.info("App: No speech detected in transcription")
                 self._event_queue.put("status:Ready (no speech)")
 
-        except Exception as e:
+        except (OSError, ValueError, openai.OpenAIError) as e:
             logger.exception(f"App: Error during audio processing: {e}")
             self._event_queue.put(f"error:{e}")
 
@@ -209,7 +211,7 @@ class VoiceInputApp(rumps.App):
         # Initialize audio stream
         try:
             self.recorder.initialize()
-        except Exception as e:
+        except (RuntimeError, sd.PortAudioError) as e:
             logger.exception(f"App: Failed to initialize audio stream: {e}")
             rumps.notification(
                 title="Voice Input Error",
