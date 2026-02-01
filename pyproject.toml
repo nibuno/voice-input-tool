@@ -25,6 +25,7 @@ voice-input-app = "voice_input.app:main"
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "ruff",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -32,3 +33,6 @@ packages = ["src/voice_input"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "BLE"]  # E: pycodestyle errors, F: pyflakes, BLE: blind-except
