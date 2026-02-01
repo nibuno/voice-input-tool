@@ -101,10 +101,9 @@ class StreamingRecorder:
             return True
 
         def do_abort() -> None:
-            try:
-                self._stream.abort()
-            except Exception as e:
-                logger.warning(f"Exception in abort: {e}")
+            # abort() has ignore_errors=True by default, so no exception is raised.
+            # See: https://python-sounddevice.readthedocs.io/en/latest/_modules/sounddevice.html
+            self._stream.abort()
 
         thread = threading.Thread(target=do_abort)
         thread.start()
@@ -127,10 +126,9 @@ class StreamingRecorder:
 
         abort_success = self._abort_with_timeout()
         if abort_success:
-            try:
-                self._stream.close()
-            except Exception as e:
-                logger.warning(f"Exception in close: {e}")
+            # close() has ignore_errors=True by default, so no exception is raised.
+            # See: https://python-sounddevice.readthedocs.io/en/latest/_modules/sounddevice.html
+            self._stream.close()
 
         self._stream = None
         logger.info("Audio stream cleanup complete")
