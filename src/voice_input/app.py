@@ -206,7 +206,9 @@ class VoiceInputApp(rumps.App):
     def run(self) -> None:
         """Start the app and hotkey listener."""
         logger.info("App: Starting Voice Input application")
-        logger.info(f"App: Hotkey={self._current_hotkey}, RMS threshold={self._rms_threshold}")
+        logger.info(
+            f"App: Hotkey={self._current_hotkey}, RMS threshold={self._rms_threshold}"
+        )
 
         # Initialize audio stream
         try:

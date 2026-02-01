@@ -30,7 +30,9 @@ def transcribe(audio_path: Path, language: str = "ja") -> str:
         raise ValueError("OPENAI_API_KEY environment variable is not set")
 
     file_size = audio_path.stat().st_size
-    logger.debug(f"Transcriber: Starting transcription for {audio_path} ({file_size} bytes)")
+    logger.debug(
+        f"Transcriber: Starting transcription for {audio_path} ({file_size} bytes)"
+    )
 
     client = OpenAI(api_key=api_key)
 
@@ -51,7 +53,11 @@ def transcribe(audio_path: Path, language: str = "ja") -> str:
             )
         elapsed = time.time() - start_time
         logger.info(f"Transcriber: API call completed in {elapsed:.2f}s")
-        logger.debug(f"Transcriber: Result: {response.text[:100]}..." if len(response.text) > 100 else f"Transcriber: Result: {response.text}")
+        logger.debug(
+            f"Transcriber: Result: {response.text[:100]}..."
+            if len(response.text) > 100
+            else f"Transcriber: Result: {response.text}"
+        )
         return response.text
     except Exception as e:
         elapsed = time.time() - start_time
