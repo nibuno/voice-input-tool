@@ -90,6 +90,14 @@ alias voice="/path/to/voice-input-tool/.venv/bin/voice-input-app"
 
 ### メニューバーアプリの使い方
 
+```bash
+# 通常起動
+.venv/bin/voice-input-app
+
+# デバッグモード（詳細ログ出力）
+.venv/bin/voice-input-app --debug
+```
+
 `voice-input-app` を起動すると:
 
 - メニューバーに「Voice Input」が表示されます
