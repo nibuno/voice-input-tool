@@ -157,6 +157,17 @@ class VoiceInputApp(rumps.App):
         """Transcribe audio and output text (runs in background thread)."""
         logger.debug(f"App: Processing audio data ({len(audio_data)} samples)")
 
+        # Check for empty buffer (likely device error, reinitialize stream)
+        if len(audio_data) == 0:
+            logger.warning("App: Empty buffer detected, reinitializing audio stream")
+            try:
+                self.recorder.reinitialize()
+                self._event_queue.put("status:Ready (retry recording)")
+            except (RuntimeError, sd.PortAudioError) as e:
+                logger.exception(f"App: Failed to reinitialize audio stream: {e}")
+                self._event_queue.put(f"error:Audio reinit failed: {e}")
+            return
+
         # Check minimum duration
         if len(audio_data) < SAMPLE_RATE * MIN_RECORDING_SECONDS:
             logger.info("App: Recording too short, skipping")

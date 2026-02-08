@@ -138,6 +138,37 @@ class StreamingRecorder:
         """Check if the stream is initialized (may be stopped or running)."""
         return self._stream is not None
 
+    def reinitialize(self) -> None:
+        """Reinitialize the audio stream (for recovery from device errors).
+
+        This closes the existing stream and creates a new one.
+        Use this when the stream becomes stale (e.g., after device sleep).
+        """
+        logger.info("Reinitializing audio stream...")
+
+        # Clean up existing stream
+        if self._stream is not None:
+            abort_success = self._abort_with_timeout()
+            if abort_success:
+                self._stream.close()
+            self._stream = None
+
+        # Clear queue
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                break
+
+        # Create new stream
+        self._stream = sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype=np.int16,
+            callback=self._audio_callback,
+        )
+        logger.info("Audio stream reinitialized successfully")
+
     def stop(self) -> np.ndarray:
         """Stop recording and return audio data.
 
