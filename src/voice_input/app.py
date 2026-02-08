@@ -27,6 +27,12 @@ MIN_RECORDING_SECONDS = 0.3
 # This threshold filters out silence and very quiet recordings
 MIN_RMS_THRESHOLD = 100
 
+# Recording mode names for menu display
+MODE_NAMES = {
+    "hold": "Hold (押している間)",
+    "toggle": "Toggle (押すたびに切替)",
+}
+
 
 class VoiceInputApp(rumps.App):
     """Mac menu bar application for voice input using Whisper API."""
@@ -42,14 +48,18 @@ class VoiceInputApp(rumps.App):
         # Load config
         self._config = load_config()
         self._current_hotkey = self._config.get("hotkey", "ctrl_l")
+        self._current_mode = self._config.get("mode", "hold")
         self._rms_threshold = self._config.get("rms_threshold", MIN_RMS_THRESHOLD)
+
+        # Toggle mode state
+        self._is_recording = False
 
         self.recorder = StreamingRecorder()
         self._event_queue: queue.Queue[str] = queue.Queue()
 
         self.hotkey_listener = HotkeyListener(
-            on_press=lambda: self._event_queue.put("start"),
-            on_release=lambda: self._event_queue.put("stop"),
+            on_press=lambda: self._event_queue.put("press"),
+            on_release=lambda: self._event_queue.put("release"),
             hotkey=self._current_hotkey,
         )
 
@@ -67,10 +77,22 @@ class VoiceInputApp(rumps.App):
             self._hotkey_items[key_id] = item
             self.hotkey_menu.add(item)
 
+        # Mode submenu
+        self.mode_menu = rumps.MenuItem("Mode")
+        self._mode_items = {}
+        for mode_id, mode_name in MODE_NAMES.items():
+            item = rumps.MenuItem(mode_name, callback=self._on_mode_selected)
+            item.mode_id = mode_id  # Store mode_id for callback
+            if mode_id == self._current_mode:
+                item.state = 1  # Checkmark
+            self._mode_items[mode_id] = item
+            self.mode_menu.add(item)
+
         self.menu = [
             self.status_item,
             None,  # Separator
             self.hotkey_menu,
+            self.mode_menu,
             rumps.MenuItem("Language: Japanese"),
         ]
 
@@ -91,16 +113,34 @@ class VoiceInputApp(rumps.App):
         self._config["hotkey"] = key_id
         save_config(self._config)
 
+    def _on_mode_selected(self, sender: rumps.MenuItem) -> None:
+        """Handle mode selection from menu."""
+        mode_id = sender.mode_id
+
+        # Update checkmarks
+        for item in self._mode_items.values():
+            item.state = 0
+        sender.state = 1
+
+        # Update mode and reset recording state
+        self._current_mode = mode_id
+        self._is_recording = False
+
+        # Save config
+        self._config["mode"] = mode_id
+        save_config(self._config)
+        logger.info(f"App: Mode changed to {mode_id}")
+
     @rumps.timer(0.05)
     def _check_events(self, _sender: object) -> None:
         """Poll for hotkey events from the queue."""
         try:
             while True:
                 event = self._event_queue.get_nowait()
-                if event == "start":
-                    self._start_recording()
-                elif event == "stop":
-                    self._stop_recording()
+                if event == "press":
+                    self._on_hotkey_press()
+                elif event == "release":
+                    self._on_hotkey_release()
                 elif event.startswith("status:"):
                     status = event[7:]
                     self.title = "Voice Input"
@@ -116,6 +156,23 @@ class VoiceInputApp(rumps.App):
                     )
         except queue.Empty:
             pass
+
+    def _on_hotkey_press(self) -> None:
+        """Handle hotkey press based on current mode."""
+        if self._current_mode == "toggle":
+            if self._is_recording:
+                self._is_recording = False
+                self._stop_recording()
+            else:
+                self._is_recording = True
+                self._start_recording()
+        else:  # hold mode
+            self._start_recording()
+
+    def _on_hotkey_release(self) -> None:
+        """Handle hotkey release based on current mode."""
+        if self._current_mode == "hold":
+            self._stop_recording()
 
     def _start_recording(self) -> None:
         """Start recording audio."""
@@ -219,7 +276,8 @@ class VoiceInputApp(rumps.App):
         """Start the app and hotkey listener."""
         logger.info("App: Starting Voice Input application")
         logger.info(
-            f"App: Hotkey={self._current_hotkey}, RMS threshold={self._rms_threshold}"
+            f"App: Hotkey={self._current_hotkey}, Mode={self._current_mode}, "
+            f"RMS threshold={self._rms_threshold}"
         )
 
         # Initialize audio stream
