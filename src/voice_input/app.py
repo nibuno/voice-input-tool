@@ -9,6 +9,7 @@ import openai
 import rumps
 import sounddevice as sd
 
+from .accessibility import check_accessibility_permission
 from .config import load_config, save_config
 from .hotkey import HOTKEY_NAMES, HotkeyListener
 from .logger import get_logger
@@ -251,6 +252,12 @@ def main() -> None:
     if not os.environ.get("OPENAI_API_KEY"):
         print("Error: OPENAI_API_KEY environment variable is not set")
         print("Please create a .env file with your API key")
+        return
+
+    if not check_accessibility_permission(prompt=True):
+        print("Error: アクセシビリティ権限が必要です")
+        print("システム設定 > プライバシーとセキュリティ > アクセシビリティ")
+        print("で Voice Input を許可してください")
         return
 
     app = VoiceInputApp(debug=args.debug)
