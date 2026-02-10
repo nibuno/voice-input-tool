@@ -151,7 +151,8 @@ class VoiceInputApp(rumps.App):
                     self.status_item.title = "Status: Error"
                     self._notify_error(message)
         except queue.Empty:
-            pass
+            # No events in queue; return to the timer loop.
+            return
 
     def _notify_error(self, message: str) -> None:
         """Show an error notification if available; fall back to logs."""
