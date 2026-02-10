@@ -161,13 +161,19 @@ class StreamingRecorder:
                 break
 
         # Create new stream
-        self._stream = sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype=np.int16,
-            callback=self._audio_callback,
-        )
-        logger.info("Audio stream reinitialized successfully")
+        try:
+            self._stream = sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype=np.int16,
+                callback=self._audio_callback,
+            )
+            logger.info("Audio stream reinitialized successfully")
+        except Exception:
+            # Ensure we leave stream in a known state on failure
+            self._stream = None
+            logger.exception("Audio stream reinitialize failed")
+            raise
 
     def stop(self) -> np.ndarray:
         """Stop recording and return audio data.

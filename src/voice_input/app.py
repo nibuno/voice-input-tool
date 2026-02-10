@@ -149,13 +149,20 @@ class VoiceInputApp(rumps.App):
                     message = event[6:]
                     self.title = "Voice Input"
                     self.status_item.title = "Status: Error"
-                    rumps.notification(
-                        title="Voice Input Error",
-                        subtitle="",
-                        message=message,
-                    )
+                    self._notify_error(message)
         except queue.Empty:
             pass
+
+    def _notify_error(self, message: str) -> None:
+        """Show an error notification if available; fall back to logs."""
+        try:
+            rumps.notification(
+                title="Voice Input Error",
+                subtitle="",
+                message=message,
+            )
+        except Exception as e:
+            logger.warning(f"App: Notification failed: {e}")
 
     def _on_hotkey_press(self) -> None:
         """Handle hotkey press based on current mode."""
@@ -179,9 +186,13 @@ class VoiceInputApp(rumps.App):
         logger.info("App: Start recording triggered")
 
         if not self.recorder.is_initialized:
-            logger.error("App: Recorder not initialized")
-            self._event_queue.put("error:Audio stream not initialized")
-            return
+            logger.warning("App: Recorder not initialized, attempting initialize")
+            try:
+                self.recorder.initialize()
+            except (RuntimeError, sd.PortAudioError) as e:
+                logger.exception(f"App: Recorder initialize failed: {e}")
+                self._event_queue.put("error:Audio stream not initialized")
+                return
 
         try:
             self.title = "Recording..."
@@ -189,7 +200,17 @@ class VoiceInputApp(rumps.App):
             self.recorder.start()
         except (RuntimeError, sd.PortAudioError) as e:
             logger.exception(f"App: Failed to start recording: {e}")
-            self._event_queue.put(f"error:{e}")
+            # Attempt reinitialize once (device may be stale after idle/sleep)
+            try:
+                self.recorder.reinitialize()
+                self.recorder.start()
+                logger.info("App: Recording started after reinitialize")
+                return
+            except (RuntimeError, sd.PortAudioError) as reinit_err:
+                logger.exception(
+                    f"App: Failed to reinitialize/start recording: {reinit_err}"
+                )
+                self._event_queue.put(f"error:{reinit_err}")
 
     def _stop_recording(self) -> None:
         """Stop recording and process audio."""
@@ -241,6 +262,7 @@ class VoiceInputApp(rumps.App):
             self._event_queue.put("status:Ready (no audio)")
             return
 
+        audio_path = None
         try:
             logger.debug("App: Saving audio to file")
             audio_path = save_audio(audio_data)
@@ -248,9 +270,6 @@ class VoiceInputApp(rumps.App):
             logger.info("App: Starting transcription")
             text = transcribe(audio_path)
             logger.info(f"App: Transcription complete ({len(text)} chars)")
-
-            audio_path.unlink(missing_ok=True)
-            logger.debug("App: Temporary audio file deleted")
 
             if text and text.strip():
                 logger.debug("App: Outputting text")
@@ -264,6 +283,10 @@ class VoiceInputApp(rumps.App):
         except (OSError, ValueError, openai.OpenAIError) as e:
             logger.exception(f"App: Error during audio processing: {e}")
             self._event_queue.put(f"error:{e}")
+        finally:
+            if audio_path is not None:
+                audio_path.unlink(missing_ok=True)
+                logger.debug("App: Temporary audio file deleted")
 
     def _cleanup(self) -> None:
         """Clean up resources on app termination."""
