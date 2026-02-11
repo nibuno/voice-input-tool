@@ -46,7 +46,7 @@ class TestLoadConfig:
         # Arrange
         config_dir.mkdir(parents=True)
         config_file = config_dir / "config.json"
-        expected = {"hotkey": "ctrl_r", "rms_threshold": 200}
+        expected = {"hotkey": "ctrl_r", "rms_threshold": 200, "input_device": "Mic A"}
         config_file.write_text(json.dumps(expected))
 
         # Act
@@ -59,7 +59,9 @@ class TestLoadConfig:
         # Arrange
         config_dir.mkdir(parents=True)
         config_file = config_dir / "config.json"
-        config_file.write_text(json.dumps({"hotkey": "invalid_key", "rms_threshold": 150}))
+        config_file.write_text(
+            json.dumps({"hotkey": "invalid_key", "rms_threshold": 150})
+        )
 
         # Act
         result = load_config()
@@ -80,6 +82,20 @@ class TestLoadConfig:
         # Assert
         assert result == DEFAULT_CONFIG
 
+    def test_invalid_input_device_type_falls_back(self, config_dir: Path) -> None:
+        # Arrange
+        config_dir.mkdir(parents=True)
+        config_file = config_dir / "config.json"
+        config_file.write_text(
+            json.dumps({"hotkey": "ctrl_l", "rms_threshold": 100, "input_device": 123})
+        )
+
+        # Act
+        result = load_config()
+
+        # Assert
+        assert result["input_device"] is None
+
 
 class TestSaveConfig:
     """Tests for save_config function."""
@@ -96,7 +112,7 @@ class TestSaveConfig:
 
     def test_saves_config_as_json(self, config_dir: Path) -> None:
         # Arrange
-        config = {"hotkey": "alt_r", "rms_threshold": 75}
+        config = {"hotkey": "alt_r", "rms_threshold": 75, "input_device": "Mic B"}
 
         # Act
         save_config(config)

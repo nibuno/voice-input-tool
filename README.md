@@ -104,6 +104,8 @@ alias voice="/path/to/voice-input-tool/.venv/bin/voice-input-app"
 - 設定したホットキー（デフォルト: **左Control**）を押している間、録音されます
 - キーを離すと、自動で文字起こし → ペーストされます
 - メニューの「Hotkey」からホットキーを変更できます（設定は自動保存）
+- メニューの「Input Device」から入力デバイスを固定できます（System Default でOSのデフォルトに戻ります）
+- デバイスの抜き差し後は「Refresh Devices」で一覧を更新できます
 
 ### CLIの使い方
 
