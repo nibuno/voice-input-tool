@@ -50,6 +50,7 @@ class VoiceInputApp(rumps.App):
         self._current_hotkey = self._config.get("hotkey", "ctrl_l")
         self._current_mode = self._config.get("mode", "hold")
         self._rms_threshold = self._config.get("rms_threshold", MIN_RMS_THRESHOLD)
+        self._current_input_device_name = self._config.get("input_device")
 
         # Toggle mode state
         self._is_recording = False
@@ -88,11 +89,17 @@ class VoiceInputApp(rumps.App):
             self._mode_items[mode_id] = item
             self.mode_menu.add(item)
 
+        # Input device submenu
+        self.input_device_menu = rumps.MenuItem("Input Device")
+        self._input_device_items = {}
+        self._populate_input_device_menu()
+
         self.menu = [
             self.status_item,
             None,  # Separator
             self.hotkey_menu,
             self.mode_menu,
+            self.input_device_menu,
             rumps.MenuItem("Language: Japanese"),
         ]
 
@@ -130,6 +137,78 @@ class VoiceInputApp(rumps.App):
         self._config["mode"] = mode_id
         save_config(self._config)
         logger.info(f"App: Mode changed to {mode_id}")
+
+    def _populate_input_device_menu(self) -> None:
+        """Populate input device submenu from current device list."""
+        self.input_device_menu.clear()
+        self._input_device_items = {}
+
+        refresh_item = rumps.MenuItem("Refresh Devices", callback=self._on_refresh_devices)
+        self.input_device_menu.add(refresh_item)
+        self.input_device_menu.add(None)
+
+        # System default option
+        default_item = rumps.MenuItem("System Default", callback=self._on_input_device_selected)
+        default_item.device_name = None
+        if self._current_input_device_name is None:
+            default_item.state = 1
+        self._input_device_items[None] = default_item
+        self.input_device_menu.add(default_item)
+
+        for dev in self._list_input_devices():
+            name = dev["name"]
+            item = rumps.MenuItem(name, callback=self._on_input_device_selected)
+            item.device_name = name
+            if name == self._current_input_device_name:
+                item.state = 1
+            self._input_device_items[name] = item
+            self.input_device_menu.add(item)
+
+    def _on_refresh_devices(self, _sender: rumps.MenuItem) -> None:
+        """Refresh the input device list."""
+        self._populate_input_device_menu()
+
+    def _on_input_device_selected(self, sender: rumps.MenuItem) -> None:
+        """Handle input device selection from menu."""
+        if self.recorder.is_recording:
+            self._event_queue.put("status:Recording (device change blocked)")
+            return
+
+        device_name = sender.device_name
+
+        for item in self._input_device_items.values():
+            item.state = 0
+        sender.state = 1
+
+        self._current_input_device_name = device_name
+        self._config["input_device"] = device_name
+        save_config(self._config)
+
+        device_index = self._resolve_input_device_index(device_name)
+        self.recorder.set_device(device_index)
+
+        try:
+            if self.recorder.is_initialized:
+                self.recorder.reinitialize()
+            self._event_queue.put("status:Ready (device updated)")
+        except (RuntimeError, sd.PortAudioError) as e:
+            logger.exception(f"App: Failed to reinitialize with device: {e}")
+            self._event_queue.put(f"error:{e}")
+
+    def _list_input_devices(self) -> list[dict]:
+        """Return a list of input-capable devices."""
+        devices = sd.query_devices()
+        return [dev for dev in devices if dev.get("max_input_channels", 0) > 0]
+
+    def _resolve_input_device_index(self, device_name: str | None) -> int | None:
+        """Resolve device name to current index; None means OS default."""
+        if device_name is None:
+            return None
+        for index, dev in enumerate(sd.query_devices()):
+            if dev.get("max_input_channels", 0) > 0 and dev.get("name") == device_name:
+                return index
+        logger.warning(f"App: Input device not found: {device_name}")
+        return None
 
     @rumps.timer(0.05)
     def _check_events(self, _sender: object) -> None:
@@ -303,6 +382,16 @@ class VoiceInputApp(rumps.App):
             f"App: Hotkey={self._current_hotkey}, Mode={self._current_mode}, "
             f"RMS threshold={self._rms_threshold}"
         )
+
+        # Resolve configured input device (name -> index)
+        device_index = self._resolve_input_device_index(self._current_input_device_name)
+        if self._current_input_device_name is not None and device_index is None:
+            logger.warning("App: Configured input device not found; using OS default")
+            self._current_input_device_name = None
+            self._config["input_device"] = None
+            save_config(self._config)
+            self._populate_input_device_menu()
+        self.recorder.set_device(device_index)
 
         # Initialize audio stream
         try:

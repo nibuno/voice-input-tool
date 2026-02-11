@@ -9,6 +9,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 DEFAULT_CONFIG = {
     "hotkey": "ctrl_l",
     "rms_threshold": 100,
+    "input_device": None,
 }
 
 VALID_HOTKEYS = ["ctrl_l", "ctrl_r", "alt_l", "alt_r"]
@@ -29,6 +30,11 @@ def load_config() -> dict:
             # Validate hotkey value
             if config.get("hotkey") not in VALID_HOTKEYS:
                 config["hotkey"] = DEFAULT_CONFIG["hotkey"]
+            # Validate input_device type (devices are dynamic; actual resolution happens later)
+            if "input_device" in config and not (
+                config["input_device"] is None or isinstance(config["input_device"], str)
+            ):
+                config["input_device"] = DEFAULT_CONFIG["input_device"]
             return config
     except (json.JSONDecodeError, OSError):
         return DEFAULT_CONFIG.copy()

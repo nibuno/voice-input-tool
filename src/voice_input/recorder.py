@@ -29,6 +29,32 @@ class StreamingRecorder:
         self._queue: queue.Queue[np.ndarray] = queue.Queue()
         self._stream: sd.InputStream | None = None
         self.is_recording: bool = False
+        self._device: int | None = None
+
+    def set_device(self, device: int | None) -> None:
+        """Set the input device index (None = OS default)."""
+        self._device = device
+
+    def _create_stream(self) -> sd.InputStream:
+        """Create an InputStream with the current device setting."""
+        return sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype=np.int16,
+            callback=self._audio_callback,
+            device=self._device,
+        )
+
+    def _create_stream_with_fallback(self) -> sd.InputStream:
+        """Create an InputStream, falling back to OS default on failure."""
+        try:
+            return self._create_stream()
+        except sd.PortAudioError:
+            if self._device is None:
+                raise
+            logger.warning("Configured device failed; falling back to OS default")
+            self._device = None
+            return self._create_stream()
 
     def _audio_callback(
         self,
@@ -62,12 +88,7 @@ class StreamingRecorder:
             raise RuntimeError("Stream already initialized")
 
         logger.info("Initializing audio stream...")
-        self._stream = sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype=np.int16,
-            callback=self._audio_callback,
-        )
+        self._stream = self._create_stream_with_fallback()
         # Stream is created but not started (microphone not active)
         logger.info("Audio stream initialized successfully")
 
@@ -162,12 +183,7 @@ class StreamingRecorder:
 
         # Create new stream
         try:
-            self._stream = sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                channels=1,
-                dtype=np.int16,
-                callback=self._audio_callback,
-            )
+            self._stream = self._create_stream_with_fallback()
             logger.info("Audio stream reinitialized successfully")
         except Exception:
             # Ensure we leave stream in a known state on failure
