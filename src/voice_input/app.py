@@ -92,6 +92,7 @@ class VoiceInputApp(rumps.App):
         # Input device submenu
         self.input_device_menu = rumps.MenuItem("Input Device")
         self._input_device_items = {}
+        self._input_device_menu_populated = False
 
         self.menu = [
             self.status_item,
@@ -101,7 +102,7 @@ class VoiceInputApp(rumps.App):
             self.input_device_menu,
             rumps.MenuItem("Language: Japanese"),
         ]
-        self._populate_input_device_menu()
+        self._input_device_menu_populated = self._populate_input_device_menu()
 
     def _on_hotkey_selected(self, sender: rumps.MenuItem) -> None:
         """Handle hotkey selection from menu."""
@@ -140,10 +141,8 @@ class VoiceInputApp(rumps.App):
 
     def _populate_input_device_menu(self) -> None:
         """Populate input device submenu from current device list."""
-        if getattr(self.input_device_menu, "_menu", None) is None:
-            # Menu is not attached yet; skip until menu is ready.
-            return
-        self.input_device_menu.clear()
+        if getattr(self.input_device_menu, "_menu", None) is not None:
+            self.input_device_menu.clear()
         self._input_device_items = {}
 
         refresh_item = rumps.MenuItem("Refresh Devices", callback=self._on_refresh_devices)
@@ -166,6 +165,17 @@ class VoiceInputApp(rumps.App):
                 item.state = 1
             self._input_device_items[name] = item
             self.input_device_menu.add(item)
+        return True
+
+    @rumps.timer(0.5)
+    def _ensure_input_device_menu(self, sender: rumps.Timer) -> None:
+        """Populate input device menu once after app menu is attached."""
+        if self._input_device_menu_populated:
+            sender.stop()
+            return
+        self._input_device_menu_populated = self._populate_input_device_menu()
+        if self._input_device_menu_populated:
+            sender.stop()
 
     def _on_refresh_devices(self, _sender: rumps.MenuItem) -> None:
         """Refresh the input device list."""
