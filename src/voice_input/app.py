@@ -92,7 +92,6 @@ class VoiceInputApp(rumps.App):
         # Input device submenu
         self.input_device_menu = rumps.MenuItem("Input Device")
         self._input_device_items = {}
-        self._populate_input_device_menu()
 
         self.menu = [
             self.status_item,
@@ -102,6 +101,7 @@ class VoiceInputApp(rumps.App):
             self.input_device_menu,
             rumps.MenuItem("Language: Japanese"),
         ]
+        self._populate_input_device_menu()
 
     def _on_hotkey_selected(self, sender: rumps.MenuItem) -> None:
         """Handle hotkey selection from menu."""
@@ -140,6 +140,9 @@ class VoiceInputApp(rumps.App):
 
     def _populate_input_device_menu(self) -> None:
         """Populate input device submenu from current device list."""
+        if getattr(self.input_device_menu, "_menu", None) is None:
+            # Menu is not attached yet; skip until menu is ready.
+            return
         self.input_device_menu.clear()
         self._input_device_items = {}
 
