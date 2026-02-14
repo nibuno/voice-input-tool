@@ -51,9 +51,11 @@ class VoiceInputApp(rumps.App):
         self._current_mode = self._config.get("mode", "hold")
         self._rms_threshold = self._config.get("rms_threshold", MIN_RMS_THRESHOLD)
         self._current_input_device_name = self._config.get("input_device")
+        self._max_recording_seconds = self._config.get("max_recording_seconds", 60.0)
 
         # Toggle mode state
         self._is_recording = False
+        self._recording_timeout_timer: rumps.Timer | None = None
 
         self.recorder = StreamingRecorder()
         self._event_queue: queue.Queue[str] = queue.Queue()
@@ -291,6 +293,7 @@ class VoiceInputApp(rumps.App):
             self.title = "Recording..."
             self.status_item.title = "Status: Recording..."
             self.recorder.start()
+            self._start_recording_timeout()
         except (RuntimeError, sd.PortAudioError) as e:
             logger.exception(f"App: Failed to start recording: {e}")
             # Attempt reinitialize once (device may be stale after idle/sleep)
@@ -305,9 +308,38 @@ class VoiceInputApp(rumps.App):
                 )
                 self._event_queue.put(f"error:{reinit_err}")
 
+    def _start_recording_timeout(self) -> None:
+        """Start auto-stop timer for toggle mode."""
+        if self._current_mode != "toggle":
+            return
+        if not self._max_recording_seconds or self._max_recording_seconds <= 0:
+            return
+        # Cancel any existing timer
+        if self._recording_timeout_timer:
+            self._recording_timeout_timer.stop()
+            self._recording_timeout_timer = None
+
+        def _timeout(_sender: rumps.Timer) -> None:
+            if self._is_recording:
+                logger.info("App: Auto-stopping recording due to timeout")
+                self._is_recording = False
+                self._stop_recording()
+                self._event_queue.put("status:Ready (auto-stopped)")
+            _sender.stop()
+            self._recording_timeout_timer = None
+
+        self._recording_timeout_timer = rumps.Timer(
+            _timeout,
+            self._max_recording_seconds,
+        )
+        self._recording_timeout_timer.start()
+
     def _stop_recording(self) -> None:
         """Stop recording and process audio."""
         logger.info("App: Stop recording triggered")
+        if self._recording_timeout_timer:
+            self._recording_timeout_timer.stop()
+            self._recording_timeout_timer = None
         try:
             audio_data = self.recorder.stop()
             self.title = "Processing..."

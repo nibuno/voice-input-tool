@@ -10,6 +10,7 @@ DEFAULT_CONFIG = {
     "hotkey": "ctrl_l",
     "rms_threshold": 100,
     "input_device": None,
+    "max_recording_seconds": 60.0,
 }
 
 VALID_HOTKEYS = ["ctrl_l", "ctrl_r", "alt_l", "alt_r"]

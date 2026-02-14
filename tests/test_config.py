@@ -46,7 +46,12 @@ class TestLoadConfig:
         # Arrange
         config_dir.mkdir(parents=True)
         config_file = config_dir / "config.json"
-        expected = {"hotkey": "ctrl_r", "rms_threshold": 200, "input_device": "Mic A"}
+        expected = {
+            "hotkey": "ctrl_r",
+            "rms_threshold": 200,
+            "input_device": "Mic A",
+            "max_recording_seconds": 30.0,
+        }
         config_file.write_text(json.dumps(expected))
 
         # Act
@@ -112,7 +117,12 @@ class TestSaveConfig:
 
     def test_saves_config_as_json(self, config_dir: Path) -> None:
         # Arrange
-        config = {"hotkey": "alt_r", "rms_threshold": 75, "input_device": "Mic B"}
+        config = {
+            "hotkey": "alt_r",
+            "rms_threshold": 75,
+            "input_device": "Mic B",
+            "max_recording_seconds": 45.0,
+        }
 
         # Act
         save_config(config)
