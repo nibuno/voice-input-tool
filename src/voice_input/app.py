@@ -3,6 +3,7 @@
 import atexit
 import queue
 import threading
+import time
 
 import numpy as np
 import openai
@@ -51,11 +52,13 @@ class VoiceInputApp(rumps.App):
         self._current_mode = self._config.get("mode", "hold")
         self._rms_threshold = self._config.get("rms_threshold", MIN_RMS_THRESHOLD)
         self._current_input_device_name = self._config.get("input_device")
-        self._max_recording_seconds = self._config.get("max_recording_seconds", 60.0)
+        self._max_recording_seconds = self._config.get("max_recording_seconds", 5.0)
 
         # Toggle mode state
         self._is_recording = False
-        self._recording_timeout_timer: rumps.Timer | None = None
+        self._recording_start_time: float | None = None
+        self._last_timeout_log_second: int | None = None
+        self._auto_stopped = False
 
         self.recorder = StreamingRecorder()
         self._event_queue: queue.Queue[str] = queue.Queue()
@@ -228,6 +231,28 @@ class VoiceInputApp(rumps.App):
     @rumps.timer(0.05)
     def _check_events(self, _sender: object) -> None:
         """Poll for hotkey events from the queue."""
+        # Auto-stop for toggle mode if recording exceeds max duration
+        if (
+            self._current_mode == "toggle"
+            and self._is_recording
+            and self._recording_start_time is not None
+            and self._max_recording_seconds > 0
+        ):
+            elapsed = time.monotonic() - self._recording_start_time
+            elapsed_sec = int(elapsed)
+            if self._last_timeout_log_second != elapsed_sec:
+                self._last_timeout_log_second = elapsed_sec
+                logger.debug(
+                    "App: Recording elapsed %.1fs / %.1fs",
+                    elapsed,
+                    self._max_recording_seconds,
+                )
+            if elapsed >= self._max_recording_seconds:
+                logger.info("App: Auto-stopping recording due to timeout")
+                self._auto_stopped = True
+                self._is_recording = False
+                self._stop_recording()
+                self._event_queue.put("status:Ready (auto-stopped)")
         try:
             while True:
                 event = self._event_queue.get_nowait()
@@ -293,7 +318,14 @@ class VoiceInputApp(rumps.App):
             self.title = "Recording..."
             self.status_item.title = "Status: Recording..."
             self.recorder.start()
-            self._start_recording_timeout()
+            if self._current_mode == "toggle":
+                self._recording_start_time = time.monotonic()
+                self._last_timeout_log_second = None
+                self._auto_stopped = False
+                logger.info(
+                    "App: Auto-stop enabled (%.1fs)",
+                    self._max_recording_seconds,
+                )
         except (RuntimeError, sd.PortAudioError) as e:
             logger.exception(f"App: Failed to start recording: {e}")
             # Attempt reinitialize once (device may be stale after idle/sleep)
@@ -308,38 +340,10 @@ class VoiceInputApp(rumps.App):
                 )
                 self._event_queue.put(f"error:{reinit_err}")
 
-    def _start_recording_timeout(self) -> None:
-        """Start auto-stop timer for toggle mode."""
-        if self._current_mode != "toggle":
-            return
-        if not self._max_recording_seconds or self._max_recording_seconds <= 0:
-            return
-        # Cancel any existing timer
-        if self._recording_timeout_timer:
-            self._recording_timeout_timer.stop()
-            self._recording_timeout_timer = None
-
-        def _timeout(_sender: rumps.Timer) -> None:
-            if self._is_recording:
-                logger.info("App: Auto-stopping recording due to timeout")
-                self._is_recording = False
-                self._stop_recording()
-                self._event_queue.put("status:Ready (auto-stopped)")
-            _sender.stop()
-            self._recording_timeout_timer = None
-
-        self._recording_timeout_timer = rumps.Timer(
-            _timeout,
-            self._max_recording_seconds,
-        )
-        self._recording_timeout_timer.start()
-
     def _stop_recording(self) -> None:
         """Stop recording and process audio."""
         logger.info("App: Stop recording triggered")
-        if self._recording_timeout_timer:
-            self._recording_timeout_timer.stop()
-            self._recording_timeout_timer = None
+        self._recording_start_time = None
         try:
             audio_data = self.recorder.stop()
             self.title = "Processing..."
@@ -359,6 +363,11 @@ class VoiceInputApp(rumps.App):
     def _process_audio(self, audio_data) -> None:
         """Transcribe audio and output text (runs in background thread)."""
         logger.debug(f"App: Processing audio data ({len(audio_data)} samples)")
+        if self._auto_stopped:
+            logger.info("App: Auto-stopped recording; skipping transcription")
+            self._event_queue.put("status:Ready (auto-stopped)")
+            self._auto_stopped = False
+            return
 
         # Check for empty buffer (likely device error, reinitialize stream)
         if len(audio_data) == 0:
