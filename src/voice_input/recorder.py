@@ -14,6 +14,7 @@ from .logger import get_logger
 SAMPLE_RATE = 16000  # Whisper expects 16kHz
 ABORT_TIMEOUT = 1.0  # Timeout for stream.abort() in seconds
 CLOSE_TIMEOUT = 1.0  # Timeout for stream.close() in seconds
+STOP_TIMEOUT = 1.0  # Timeout for stream.stop() in seconds
 
 logger = get_logger()
 
@@ -126,13 +127,38 @@ class StreamingRecorder:
             # See: https://python-sounddevice.readthedocs.io/en/latest/_modules/sounddevice.html
             self._stream.abort()
 
-        thread = threading.Thread(target=do_abort)
+        thread = threading.Thread(target=do_abort, daemon=True)
         thread.start()
         thread.join(timeout=ABORT_TIMEOUT)
 
         if thread.is_alive():
             logger.warning(
                 f"stream.abort() timed out after {ABORT_TIMEOUT}s, forcing continue"
+            )
+            return False
+        return True
+
+    def _stop_with_timeout(self) -> bool:
+        """Stop stream with timeout to prevent hanging.
+
+        Returns:
+            True if stop completed normally, False if timed out.
+        """
+        if not self._stream:
+            return True
+
+        def do_stop() -> None:
+            # stop() has ignore_errors=True by default, so no exception is raised.
+            # See: https://python-sounddevice.readthedocs.io/en/latest/_modules/sounddevice.html
+            self._stream.stop()
+
+        thread = threading.Thread(target=do_stop, daemon=True)
+        thread.start()
+        thread.join(timeout=STOP_TIMEOUT)
+
+        if thread.is_alive():
+            logger.warning(
+                f"stream.stop() timed out after {STOP_TIMEOUT}s, falling back to abort()"
             )
             return False
         return True
@@ -203,7 +229,9 @@ class StreamingRecorder:
 
         # Pause stream (deactivates microphone)
         if self._stream is not None:
-            self._stream.stop()
+            stop_success = self._stop_with_timeout()
+            if not stop_success:
+                self._abort_with_timeout()
 
         logger.info("Recording stopped")
 

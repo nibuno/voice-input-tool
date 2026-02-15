@@ -106,7 +106,7 @@ alias voice="/path/to/voice-input-tool/.venv/bin/voice-input-app"
 - メニューの「Hotkey」からホットキーを変更できます（設定は自動保存）
 - メニューの「Input Device」から入力デバイスを固定できます（System Default でOSのデフォルトに戻ります）
 - デバイスの抜き差し後は「Refresh Devices」で一覧を更新できます
-- Toggleモードでは長時間録音を防ぐため、60秒で自動停止します（`max_recording_seconds`で変更可能）
+- Toggleモードでは長時間録音を防ぐため、30秒で自動停止します（`max_recording_seconds`で変更可能）
 
 ### CLIの使い方
 

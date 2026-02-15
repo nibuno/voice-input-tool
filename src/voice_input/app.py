@@ -52,7 +52,7 @@ class VoiceInputApp(rumps.App):
         self._current_mode = self._config.get("mode", "hold")
         self._rms_threshold = self._config.get("rms_threshold", MIN_RMS_THRESHOLD)
         self._current_input_device_name = self._config.get("input_device")
-        self._max_recording_seconds = self._config.get("max_recording_seconds", 5.0)
+        self._max_recording_seconds = self._config.get("max_recording_seconds", 30.0)
 
         # Toggle mode state
         self._is_recording = False
