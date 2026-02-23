@@ -12,6 +12,7 @@ import sounddevice as sd
 
 from .accessibility import check_accessibility_permission
 from .config import load_config, save_config
+from .device_monitor import DeviceMonitor
 from .hotkey import HOTKEY_NAMES, HotkeyListener
 from .logger import get_logger
 from .output import output_text
@@ -62,6 +63,9 @@ class VoiceInputApp(rumps.App):
 
         self.recorder = StreamingRecorder()
         self._event_queue: queue.Queue[str] = queue.Queue()
+        self._reinit_lock = threading.Lock()
+        self._device_monitor: DeviceMonitor | None = None
+        self._configured_device_available: bool = True
 
         self.hotkey_listener = HotkeyListener(
             on_press=lambda: self._event_queue.put("press"),
@@ -260,6 +264,31 @@ class VoiceInputApp(rumps.App):
                     self._on_hotkey_press()
                 elif event == "release":
                     self._on_hotkey_release()
+                elif event == "reinitialize":
+                    threading.Thread(
+                        target=self._reinitialize_audio, daemon=True
+                    ).start()
+                elif event == "system_wake":
+                    threading.Thread(
+                        target=self._reinit_after_wake, daemon=True
+                    ).start()
+                elif event == "device_change":
+                    threading.Thread(
+                        target=self._handle_device_change, daemon=True
+                    ).start()
+                elif event.startswith("device_disconnected:"):
+                    device_name = event[len("device_disconnected:"):]
+                    self.title = "Voice Input"
+                    self.status_item.title = "Status: Ready (default mic)"
+                    self._notify_error(
+                        f"マイク「{device_name}」が切断されました。"
+                        "システムデフォルトを使用します。"
+                    )
+                elif event.startswith("device_reconnected:"):
+                    device_name = event[len("device_reconnected:"):]
+                    self.title = "Voice Input"
+                    self.status_item.title = "Status: Ready"
+                    logger.info(f"App: '{device_name}' reconnected and ready")
                 elif event.startswith("status:"):
                     status = event[7:]
                     self.title = "Voice Input"
@@ -272,6 +301,142 @@ class VoiceInputApp(rumps.App):
         except queue.Empty:
             # No events in queue; return to the timer loop.
             return
+
+    def _reinitialize_audio(self) -> None:
+        """Reinitialize audio stream in a dedicated thread.
+
+        Called when an empty recording buffer indicates a stale stream
+        (e.g., after USB device re-enumeration on sleep/wake).
+        The 0.5s Pa_Terminate/Initialize delay runs here, off the main thread.
+        """
+        acquired = self._reinit_lock.acquire(blocking=False)
+        if not acquired:
+            logger.debug("App: Reinitialize already in progress, skipping")
+            self._event_queue.put("status:Ready (retry recording)")
+            return
+        try:
+            # Re-resolve device index from name; index may change after USB re-enumeration
+            device_index = self._resolve_input_device_index(self._current_input_device_name)
+            self.recorder.set_device(device_index)
+            self.recorder.reinitialize()
+            self._event_queue.put("status:Ready (retry recording)")
+        except (RuntimeError, sd.PortAudioError) as e:
+            logger.exception(f"App: Failed to reinitialize audio stream: {e}")
+            self._event_queue.put(f"error:Audio reinit failed: {e}")
+        finally:
+            self._reinit_lock.release()
+
+    # ------------------------------------------------------------------
+    # Sleep / wake / device change handlers
+    # ------------------------------------------------------------------
+
+    def _on_system_sleep(self) -> None:
+        """Called when the system is about to sleep (main thread).
+
+        Cleans up the audio stream so macOS can fully power down USB devices.
+        """
+        logger.info("App: System will sleep - cleaning up audio stream")
+        if self._is_recording:
+            self._is_recording = False
+            self._auto_stopped = True
+            self._recording_start_time = None
+            self.recorder.is_recording = False
+        self.recorder.cleanup()
+        self.title = "Voice Input"
+        self.status_item.title = "Status: Sleeping..."
+
+    def _on_system_wake(self) -> None:
+        """Called when the system woke from sleep (main thread).
+
+        Schedules audio reinitialize via event queue so the 1.5 s wait
+        and Pa_Terminate/Initialize run off the main thread.
+        """
+        logger.info("App: System woke - scheduling audio reinitialize")
+        self._event_queue.put("system_wake")
+
+    def _on_audio_device_change(self) -> None:
+        """Called when the CoreAudio device list changes (background thread).
+
+        Debounced by DeviceMonitor; routes handling through the event queue.
+        """
+        logger.info("App: Audio device list changed")
+        self._event_queue.put("device_change")
+
+    def _reinit_after_wake(self) -> None:
+        """Reinitialize audio stream after system wake (background thread).
+
+        Waits for CoreAudio and USB devices to stabilize before rebuilding
+        the PortAudio context.
+        """
+        acquired = self._reinit_lock.acquire(blocking=False)
+        if not acquired:
+            logger.debug("App: Reinitialize already in progress, skipping wake reinit")
+            return
+        try:
+            time.sleep(1.5)  # Wait for CoreAudio/USB to fully stabilize after wake
+            device_index = self._resolve_input_device_index(self._current_input_device_name)
+            self.recorder.set_device(device_index)
+            self.recorder.reinitialize()
+            self._event_queue.put("status:Ready")
+            logger.info("App: Audio stream ready after wake")
+        except Exception as e:
+            logger.exception(f"App: Failed to reinitialize after wake: {e}")
+            self._event_queue.put(f"error:Wake reinit failed: {e}")
+        finally:
+            self._reinit_lock.release()
+
+    def _handle_device_change(self) -> None:
+        """Handle CoreAudio device list change (background thread).
+
+        Re-resolves the configured device by name. On disconnect, falls back
+        to OS default and notifies the user. On reconnect, switches back.
+        """
+        acquired = self._reinit_lock.acquire(blocking=False)
+        if not acquired:
+            logger.debug("App: Reinitialize already in progress, skipping device change")
+            return
+        try:
+            if self._current_input_device_name is None:
+                return  # Using OS default; no specific device to track
+
+            # Resolve availability first so the flag is always up-to-date,
+            # even when we defer the actual reinitialize due to recording.
+            new_index = self._resolve_input_device_index(self._current_input_device_name)
+            was_available = self._configured_device_available
+            self._configured_device_available = new_index is not None
+
+            if self.recorder.is_recording or self._is_recording:
+                logger.info("App: Recording in progress, deferring device change handling")
+                return
+
+            if not self._configured_device_available:
+                # Configured device disconnected → fall back to OS default
+                logger.info(f"App: '{self._current_input_device_name}' disconnected")
+                self.recorder.set_device(None)
+                if self.recorder.is_initialized:
+                    try:
+                        self.recorder.reinitialize()
+                    except Exception as e:
+                        logger.warning(f"App: Reinitialize after disconnect failed: {e}")
+                if was_available:
+                    self._event_queue.put(
+                        f"device_disconnected:{self._current_input_device_name}"
+                    )
+            else:
+                # Configured device is present (reconnected or index changed)
+                self.recorder.set_device(new_index)
+                if self.recorder.is_initialized:
+                    try:
+                        self.recorder.reinitialize()
+                    except Exception as e:
+                        logger.warning(f"App: Reinitialize after reconnect failed: {e}")
+                if not was_available:
+                    # Device just came back
+                    self._event_queue.put(
+                        f"device_reconnected:{self._current_input_device_name}"
+                    )
+        finally:
+            self._reinit_lock.release()
 
     def _notify_error(self, message: str) -> None:
         """Show an error notification if available; fall back to logs."""
@@ -369,15 +534,12 @@ class VoiceInputApp(rumps.App):
             self._auto_stopped = False
             return
 
-        # Check for empty buffer (likely device error, reinitialize stream)
+        # Check for empty buffer (likely stale stream after USB re-enumeration).
+        # Delegate reinitialize to a dedicated thread via event queue; direct call
+        # here would invoke Pa_Terminate() from the audio processing thread.
         if len(audio_data) == 0:
-            logger.warning("App: Empty buffer detected, reinitializing audio stream")
-            try:
-                self.recorder.reinitialize()
-                self._event_queue.put("status:Ready (retry recording)")
-            except (RuntimeError, sd.PortAudioError) as e:
-                logger.exception(f"App: Failed to reinitialize audio stream: {e}")
-                self._event_queue.put(f"error:Audio reinit failed: {e}")
+            logger.warning("App: Empty buffer detected, requesting audio stream reinitialize")
+            self._event_queue.put("reinitialize")
             return
 
         # Check minimum duration
@@ -425,6 +587,8 @@ class VoiceInputApp(rumps.App):
     def _cleanup(self) -> None:
         """Clean up resources on app termination."""
         logger.info("App: Cleanup triggered")
+        if self._device_monitor is not None:
+            self._device_monitor.stop()
         self.hotkey_listener.stop()
         self.recorder.cleanup()
         logger.info("App: Cleanup complete")
@@ -461,6 +625,14 @@ class VoiceInputApp(rumps.App):
 
         # Register cleanup handler
         atexit.register(self._cleanup)
+
+        # Start device monitor (sleep/wake and audio device hot-plug)
+        self._device_monitor = DeviceMonitor(
+            on_sleep=self._on_system_sleep,
+            on_wake=self._on_system_wake,
+            on_device_change=self._on_audio_device_change,
+        )
+        self._device_monitor.start()
 
         self.hotkey_listener.start()
         super().run()

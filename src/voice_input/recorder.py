@@ -3,6 +3,7 @@
 import queue
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +16,7 @@ SAMPLE_RATE = 16000  # Whisper expects 16kHz
 ABORT_TIMEOUT = 1.0  # Timeout for stream.abort() in seconds
 CLOSE_TIMEOUT = 1.0  # Timeout for stream.close() in seconds
 STOP_TIMEOUT = 1.0  # Timeout for stream.stop() in seconds
+TERMINATE_TIMEOUT = 2.0  # Timeout for Pa_Terminate() in seconds
 
 logger = get_logger()
 
@@ -188,17 +190,50 @@ class StreamingRecorder:
     def reinitialize(self) -> None:
         """Reinitialize the audio stream (for recovery from device errors).
 
-        This closes the existing stream and creates a new one.
-        Use this when the stream becomes stale (e.g., after device sleep).
+        This resets the PortAudio subsystem entirely and creates a new stream.
+        Required when the stream becomes stale after USB device re-enumeration
+        (e.g., sleep/wake cycle), because Pa_Terminate() is the only way to
+        destroy stale AUHAL units bound to invalidated CoreAudio AudioObjectIDs.
         """
         logger.info("Reinitializing audio stream...")
 
-        # Clean up existing stream
+        # Clean up existing stream before touching PortAudio internals.
+        # If abort() times out, the AUHAL callback thread is hung (e.g., device
+        # physically disconnected).  In that state close() would also hang because
+        # Pa_CloseStream() internally waits for the callback thread to finish.
+        # Skip close() and let Pa_Terminate() forcibly destroy the AUHAL instead.
         if self._stream is not None:
             abort_success = self._abort_with_timeout()
-            if abort_success:
+            if not abort_success:
+                logger.warning(
+                    "stream.abort() timed out; skipping stream.close() — "
+                    "Pa_Terminate() will forcibly clean up hung AUHAL resources"
+                )
+                self._stream = None  # Abandon the hung stream; Pa_Terminate() cleans up
+            else:
                 self._stream.close()
-            self._stream = None
+                self._stream = None
+
+        # Reset PortAudio subsystem to flush stale AUHAL state caused by USB
+        # device re-enumeration. Pa_Terminate() destroys all internal Audio Units;
+        # Pa_Initialize() rebuilds them with fresh AudioObjectIDs from CoreAudio.
+        # Run Pa_Terminate() in a daemon thread so a hung AUHAL cannot freeze the app.
+        def _do_terminate() -> None:
+            try:
+                sd._terminate()
+            except Exception:
+                logger.warning("Pa_Terminate raised an exception; continuing")
+
+        t = threading.Thread(target=_do_terminate, daemon=True)
+        t.start()
+        t.join(timeout=TERMINATE_TIMEOUT)
+        if t.is_alive():
+            logger.warning(
+                f"Pa_Terminate() timed out after {TERMINATE_TIMEOUT}s, forcing continue"
+            )
+
+        time.sleep(0.5)  # Allow macOS to fully release CoreAudio resources
+        sd._initialize()
 
         # Clear queue
         while not self._queue.empty():
