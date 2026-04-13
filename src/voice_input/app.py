@@ -16,7 +16,13 @@ from .device_monitor import DeviceMonitor
 from .hotkey import HOTKEY_NAMES, HotkeyListener
 from .logger import get_logger
 from .output import output_text
-from .recorder import SAMPLE_RATE, StreamingRecorder, save_audio
+from .recorder import (
+    SAMPLE_RATE,
+    StreamingRecorder,
+    UnrecoverableAudioError,
+    save_audio,
+)
+from .restart import schedule_self_restart
 from .transcriber import transcribe
 
 logger = get_logger()
@@ -28,6 +34,11 @@ MIN_RECORDING_SECONDS = 0.3
 # int16 audio ranges from -32768 to 32767
 # This threshold filters out silence and very quiet recordings
 MIN_RMS_THRESHOLD = 100
+
+# If the audio callback has not fired for this many seconds while we believe
+# we're recording, treat the stream as hung (AUHAL thread stuck) and force
+# a stop + reinitialize. Sized to be well above normal scheduling jitter.
+CALLBACK_STALL_THRESHOLD_SEC = 2.0
 
 # Recording mode names for menu display
 MODE_NAMES = {
@@ -213,6 +224,10 @@ class VoiceInputApp(rumps.App):
             if self.recorder.is_initialized:
                 self.recorder.reinitialize()
             self._event_queue.put("status:Ready (device updated)")
+        except UnrecoverableAudioError as e:
+            logger.error(f"App: Unrecoverable audio state on device switch: {e}")
+            self._notify_error("デバイス切替時に音声ストリーム復旧不能、再起動します")
+            schedule_self_restart(f"device switch reinit: {e}")
         except (RuntimeError, sd.PortAudioError) as e:
             logger.exception(f"App: Failed to reinitialize with device: {e}")
             self._event_queue.put(f"error:{e}")
@@ -235,6 +250,23 @@ class VoiceInputApp(rumps.App):
     @rumps.timer(0.05)
     def _check_events(self, _sender: object) -> None:
         """Poll for hotkey events from the queue."""
+        # Detect a silently-stalled audio callback (e.g., AUHAL thread hung
+        # without any sleep/device-change notification). If we believe we're
+        # recording but no sample has arrived for a while, abort and reinit.
+        if self._is_recording and self.recorder.is_recording:
+            idle = self.recorder.seconds_since_last_callback()
+            if idle is not None and idle > CALLBACK_STALL_THRESHOLD_SEC:
+                logger.warning(
+                    "App: Audio callback stalled for %.1fs — forcing stop + reinit",
+                    idle,
+                )
+                self._auto_stopped = True
+                self._is_recording = False
+                self._stop_recording()
+                self._event_queue.put("status:Ready (recovered from stall)")
+                self._event_queue.put("reinitialize")
+                return
+
         # Auto-stop for toggle mode if recording exceeds max duration
         if (
             self._current_mode == "toggle"
@@ -320,6 +352,10 @@ class VoiceInputApp(rumps.App):
             self.recorder.set_device(device_index)
             self.recorder.reinitialize()
             self._event_queue.put("status:Ready (retry recording)")
+        except UnrecoverableAudioError as e:
+            logger.error(f"App: Unrecoverable audio state: {e} — self-restart")
+            self._notify_error("音声ストリームが復旧不能のため再起動します")
+            schedule_self_restart(f"reinit: {e}")
         except (RuntimeError, sd.PortAudioError) as e:
             logger.exception(f"App: Failed to reinitialize audio stream: {e}")
             self._event_queue.put(f"error:Audio reinit failed: {e}")
@@ -379,6 +415,10 @@ class VoiceInputApp(rumps.App):
             self.recorder.reinitialize()
             self._event_queue.put("status:Ready")
             logger.info("App: Audio stream ready after wake")
+        except UnrecoverableAudioError as e:
+            logger.error(f"App: Unrecoverable audio state after wake: {e} — self-restart")
+            self._notify_error("復帰後に音声ストリーム復旧不能、再起動します")
+            schedule_self_restart(f"wake reinit: {e}")
         except Exception as e:
             logger.exception(f"App: Failed to reinitialize after wake: {e}")
             self._event_queue.put(f"error:Wake reinit failed: {e}")
@@ -416,6 +456,10 @@ class VoiceInputApp(rumps.App):
                 if self.recorder.is_initialized:
                     try:
                         self.recorder.reinitialize()
+                    except UnrecoverableAudioError as e:
+                        logger.error(f"App: Unrecoverable audio state on disconnect: {e}")
+                        schedule_self_restart(f"disconnect reinit: {e}")
+                        return
                     except Exception as e:
                         logger.warning(f"App: Reinitialize after disconnect failed: {e}")
                 if was_available:
@@ -428,6 +472,10 @@ class VoiceInputApp(rumps.App):
                 if self.recorder.is_initialized:
                     try:
                         self.recorder.reinitialize()
+                    except UnrecoverableAudioError as e:
+                        logger.error(f"App: Unrecoverable audio state on reconnect: {e}")
+                        schedule_self_restart(f"reconnect reinit: {e}")
+                        return
                     except Exception as e:
                         logger.warning(f"App: Reinitialize after reconnect failed: {e}")
                 if not was_available:

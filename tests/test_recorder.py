@@ -4,8 +4,10 @@ import time
 
 import sounddevice as sd
 
+import pytest
+
 import voice_input.recorder as recorder_module
-from voice_input.recorder import StreamingRecorder
+from voice_input.recorder import StreamingRecorder, UnrecoverableAudioError
 
 
 class DummyStream:
@@ -155,3 +157,41 @@ def test_stop_falls_back_to_abort_when_stream_stop_times_out(monkeypatch):
     assert called["abort"] == 1
     assert elapsed < 0.2
     assert audio.size == 0
+
+
+def test_reinitialize_raises_unrecoverable_when_pa_terminate_times_out(monkeypatch):
+    """Pa_Terminate timeout leaves PortAudio's mutex held. Any subsequent
+    stream operation would deadlock, so surface UnrecoverableAudioError so
+    the app can restart the process instead of hanging."""
+
+    def hanging_terminate():
+        while True:
+            time.sleep(0.1)
+
+    monkeypatch.setattr(recorder_module, "ABORT_TIMEOUT", 0.01)
+    monkeypatch.setattr(recorder_module, "TERMINATE_TIMEOUT", 0.05)
+    monkeypatch.setattr(sd, "_terminate", hanging_terminate)
+
+    recorder = StreamingRecorder()
+    recorder._stream = HangingAbortStream()
+
+    with pytest.raises(UnrecoverableAudioError):
+        recorder.reinitialize()
+
+
+def test_seconds_since_last_callback_none_before_start():
+    recorder = StreamingRecorder()
+    assert recorder.seconds_since_last_callback() is None
+
+
+def test_seconds_since_last_callback_tracks_callback(monkeypatch):
+    recorder = StreamingRecorder()
+    recorder.is_recording = True
+
+    # Simulate a callback firing
+    import numpy as np
+    recorder._audio_callback(np.zeros((10, 1), dtype=np.int16), 10, None, 0)
+
+    idle = recorder.seconds_since_last_callback()
+    assert idle is not None
+    assert idle < 1.0

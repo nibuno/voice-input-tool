@@ -21,6 +21,15 @@ TERMINATE_TIMEOUT = 2.0  # Timeout for Pa_Terminate() in seconds
 logger = get_logger()
 
 
+class UnrecoverableAudioError(RuntimeError):
+    """Raised when PortAudio enters an unrecoverable state.
+
+    Typically this means Pa_Terminate() timed out, leaving the PortAudio
+    internal mutex held. Subsequent stream operations would deadlock, so the
+    only recovery is to restart the process.
+    """
+
+
 class StreamingRecorder:
     """Event-driven audio recorder using sounddevice InputStream.
 
@@ -33,6 +42,9 @@ class StreamingRecorder:
         self._stream: sd.InputStream | None = None
         self.is_recording: bool = False
         self._device: int | None = None
+        # Monotonic timestamp of the last audio callback while recording.
+        # Used by the app to detect a silently-stalled AUHAL callback thread.
+        self._last_callback_time: float | None = None
 
     def set_device(self, device: int | None) -> None:
         """Set the input device index (None = OS default)."""
@@ -63,16 +75,17 @@ class StreamingRecorder:
         self,
         indata: np.ndarray,
         frames: int,
-        time: object,
+        _time: object,
         status: sd.CallbackFlags,
     ) -> None:
         """Called by sounddevice for each audio chunk.
 
         Note:
-            frames, time, status are required by sounddevice's callback
+            frames, _time, status are required by sounddevice's callback
             signature but not used in this implementation.
             - frames: same as len(indata), redundant
-            - time: timestamp info, not needed for simple recording
+            - _time: timestamp info, not needed for simple recording
+              (renamed from ``time`` so it doesn't shadow the ``time`` module)
             - status: error flags (e.g. overflow), currently ignored
         """
         # Log audio stream status if there's an issue
@@ -80,6 +93,7 @@ class StreamingRecorder:
             logger.warning(f"Audio callback status: {status}")
 
         if self.is_recording:
+            self._last_callback_time = time.monotonic()
             self._queue.put_nowait(indata.copy())
 
     def initialize(self) -> None:
@@ -112,8 +126,18 @@ class StreamingRecorder:
                 break
 
         self.is_recording = True
+        # Seed the heartbeat so the stall detector waits for a real silence
+        # window from _now_, not from whenever the stream was last active.
+        self._last_callback_time = time.monotonic()
         self._stream.start()  # Resume stream (activates microphone)
         logger.info("Recording started")
+
+    def seconds_since_last_callback(self) -> float | None:
+        """Seconds since the last audio callback fired, or None if unknown."""
+        last = self._last_callback_time
+        if last is None:
+            return None
+        return time.monotonic() - last
 
     def _abort_with_timeout(self) -> bool:
         """Abort stream with timeout to prevent hanging.
@@ -228,8 +252,11 @@ class StreamingRecorder:
         t.start()
         t.join(timeout=TERMINATE_TIMEOUT)
         if t.is_alive():
-            logger.warning(
-                f"Pa_Terminate() timed out after {TERMINATE_TIMEOUT}s, forcing continue"
+            # PortAudio's internal mutex is still held by the abandoned thread.
+            # Any further Pa_Initialize / stream creation on this process will
+            # deadlock. Surface this so the app can self-restart.
+            raise UnrecoverableAudioError(
+                f"Pa_Terminate() timed out after {TERMINATE_TIMEOUT}s"
             )
 
         time.sleep(0.5)  # Allow macOS to fully release CoreAudio resources
