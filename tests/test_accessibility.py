@@ -1,101 +1,60 @@
 """Tests for accessibility module."""
 
-from unittest.mock import MagicMock, patch
+import sys
+import types
+from unittest.mock import MagicMock
+
+import pytest
 
 from voice_input.accessibility import check_accessibility_permission
 
 
-class TestCheckAccessibilityPermission:
-    """Tests for check_accessibility_permission function."""
+@pytest.fixture
+def fake_application_services(monkeypatch):
+    """Install a fake ApplicationServices module exposing the two names we use.
 
-    def test_returns_true_when_permission_granted(self):
-        """Test that True is returned when accessibility is granted."""
-        with patch("voice_input.accessibility.ctypes") as mock_ctypes:
-            # Set up mock library loading
-            mock_ctypes.util.find_library.side_effect = lambda name: f"/path/to/{name}"
+    Returns the mock ``AXIsProcessTrustedWithOptions`` so tests can configure
+    its return value and assert call arguments.
+    """
+    module = types.ModuleType("ApplicationServices")
+    module.kAXTrustedCheckOptionPrompt = "AXTrustedCheckOptionPrompt"
+    module.AXIsProcessTrustedWithOptions = MagicMock(return_value=True)
+    monkeypatch.setitem(sys.modules, "ApplicationServices", module)
+    return module
 
-            mock_cf = MagicMock()
-            mock_hi = MagicMock()
-            mock_ctypes.cdll.LoadLibrary.side_effect = [mock_cf, mock_hi]
 
-            # Mock kCFBooleanTrue
-            mock_ctypes.c_void_p.in_dll.return_value = MagicMock()
+def test_returns_true_when_permission_granted(fake_application_services):
+    fake_application_services.AXIsProcessTrustedWithOptions.return_value = True
+    assert check_accessibility_permission(prompt=True) is True
 
-            # Mock AXIsProcessTrustedWithOptions to return True
-            mock_hi.AXIsProcessTrustedWithOptions.return_value = True
 
-            result = check_accessibility_permission(prompt=True)
+def test_returns_false_when_permission_denied(fake_application_services):
+    fake_application_services.AXIsProcessTrustedWithOptions.return_value = False
+    assert check_accessibility_permission(prompt=True) is False
 
-            assert result is True
 
-    def test_returns_false_when_permission_denied(self):
-        """Test that False is returned when accessibility is denied."""
-        with patch("voice_input.accessibility.ctypes") as mock_ctypes:
-            # Set up mock library loading
-            mock_ctypes.util.find_library.side_effect = lambda name: f"/path/to/{name}"
+def test_prompt_true_passes_prompt_option(fake_application_services):
+    check_accessibility_permission(prompt=True)
+    (args, _) = fake_application_services.AXIsProcessTrustedWithOptions.call_args
+    (options,) = args
+    assert options == {fake_application_services.kAXTrustedCheckOptionPrompt: True}
 
-            mock_cf = MagicMock()
-            mock_hi = MagicMock()
-            mock_ctypes.cdll.LoadLibrary.side_effect = [mock_cf, mock_hi]
 
-            # Mock kCFBooleanTrue
-            mock_ctypes.c_void_p.in_dll.return_value = MagicMock()
+def test_prompt_false_passes_none(fake_application_services):
+    check_accessibility_permission(prompt=False)
+    fake_application_services.AXIsProcessTrustedWithOptions.assert_called_once_with(None)
 
-            # Mock AXIsProcessTrustedWithOptions to return False
-            mock_hi.AXIsProcessTrustedWithOptions.return_value = False
 
-            result = check_accessibility_permission(prompt=True)
+def test_returns_true_when_pyobjc_unavailable(monkeypatch):
+    """On non-macOS platforms ApplicationServices isn't importable; assume OK."""
+    # Simulate ImportError by inserting a module that raises on attribute access.
+    monkeypatch.setitem(sys.modules, "ApplicationServices", None)
+    assert check_accessibility_permission() is True
 
-            assert result is False
 
-    def test_returns_true_when_corefouncation_not_found(self):
-        """Test fallback when CoreFoundation is not found (non-macOS)."""
-        with patch("voice_input.accessibility.ctypes") as mock_ctypes:
-            # CoreFoundation not found
-            mock_ctypes.util.find_library.return_value = None
-
-            result = check_accessibility_permission()
-
-            assert result is True
-
-    def test_returns_true_when_hiservices_not_found(self):
-        """Test fallback when HIServices is not found."""
-        with patch("voice_input.accessibility.ctypes") as mock_ctypes:
-            # CoreFoundation found, but HIServices not found
-            def find_library(name: str):
-                if name == "CoreFoundation":
-                    return "/path/to/CoreFoundation"
-                return None
-
-            mock_ctypes.util.find_library.side_effect = find_library
-            mock_ctypes.cdll.LoadLibrary.return_value = MagicMock()
-
-            result = check_accessibility_permission()
-
-            assert result is True
-
-    def test_returns_true_on_oserror(self):
-        """Test that OSError is caught and True is returned."""
-        with patch("voice_input.accessibility.ctypes") as mock_ctypes:
-            mock_ctypes.util.find_library.side_effect = OSError("Library not found")
-
-            result = check_accessibility_permission()
-
-            assert result is True
-
-    def test_prompt_false_does_not_show_dialog(self):
-        """Test that prompt=False creates no options dictionary."""
-        with patch("voice_input.accessibility.ctypes") as mock_ctypes:
-            mock_ctypes.util.find_library.side_effect = lambda name: f"/path/to/{name}"
-
-            mock_cf = MagicMock()
-            mock_hi = MagicMock()
-            mock_ctypes.cdll.LoadLibrary.side_effect = [mock_cf, mock_hi]
-
-            mock_ctypes.c_void_p.in_dll.return_value = MagicMock()
-            mock_hi.AXIsProcessTrustedWithOptions.return_value = True
-
-            check_accessibility_permission(prompt=False)
-
-            # AXIsProcessTrustedWithOptions should be called with None
-            mock_hi.AXIsProcessTrustedWithOptions.assert_called_once_with(None)
+def test_framework_exception_returns_false(fake_application_services):
+    """Unexpected framework exception is logged and treated as 'not granted'."""
+    fake_application_services.AXIsProcessTrustedWithOptions.side_effect = RuntimeError(
+        "boom"
+    )
+    assert check_accessibility_permission(prompt=True) is False
