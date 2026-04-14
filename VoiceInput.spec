@@ -22,6 +22,8 @@ a = Analysis(
         "voice_input.hotkey",
         "voice_input.config",
         "rumps",
+        "ApplicationServices",
+        "HIServices",
         "pynput",
         "pynput.keyboard",
         "pynput.keyboard._darwin",
