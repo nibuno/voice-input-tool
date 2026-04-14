@@ -51,10 +51,12 @@ MODE_NAMES = {
     "toggle": "Toggle (押すたびに切替)",
 }
 
-# Output mode labels for menu display
+# Output mode labels for menu display. The ``paste_enter`` label leads with
+# the auto-submit warning so the user sees the destructive side-effect first;
+# clipboard preservation is the nicer secondary feature.
 OUTPUT_MODE_NAMES = {
     "copy_paste": "Copy & Paste",
-    "paste_enter": "Paste + Enter (preserve clipboard)",
+    "paste_enter": "Paste + Auto-Submit (keep clipboard)",
 }
 
 
@@ -73,7 +75,16 @@ class VoiceInputApp(rumps.App):
         self._config = load_config()
         self._current_hotkey = self._config.get("hotkey", "ctrl_l")
         self._current_mode = self._config.get("mode", "hold")
-        self._rms_threshold = self._config.get("rms_threshold", MIN_RMS_THRESHOLD)
+        rms_raw = self._config.get("rms_threshold", MIN_RMS_THRESHOLD)
+        if not isinstance(rms_raw, (int, float)) or rms_raw < 0:
+            # Defensive: a hand-edited config.json with a negative value would
+            # make the threshold check pass for every buffer (silence included)
+            # and a string would crash at comparison time. Fall back visibly.
+            logger.warning(
+                f"App: invalid rms_threshold {rms_raw!r} in config; using default"
+            )
+            rms_raw = MIN_RMS_THRESHOLD
+        self._rms_threshold = rms_raw
         self._current_input_device_name = self._config.get("input_device")
         self._max_recording_seconds = self._config.get("max_recording_seconds", 30.0)
         self._output_mode = self._config.get("output_mode", "copy_paste")
@@ -151,8 +162,22 @@ class VoiceInputApp(rumps.App):
         self._input_device_menu_populated = self._populate_input_device_menu()
 
     def _build_rms_menu(self) -> None:
-        """Populate the RMS threshold submenu with preset values."""
+        """Populate the RMS threshold submenu with preset values.
+
+        If the configured threshold is not one of the presets (e.g. the user
+        hand-edited config.json to 75), surface it as a non-clickable
+        ``Current: <value>`` row so they can still see what's active before
+        picking a preset to overwrite it.
+        """
         self._rms_items = {}
+
+        if self._rms_threshold not in VALID_RMS_THRESHOLDS:
+            current = rumps.MenuItem(f"Current: {self._rms_threshold}")
+            current.state = 1
+            # No callback = unclickable; the user changes this by picking a preset below.
+            self.rms_menu.add(current)
+            self.rms_menu.add(None)  # separator
+
         for value in VALID_RMS_THRESHOLDS:
             label = f"{value}" + (" (default)" if value == 100 else "")
             item = rumps.MenuItem(label, callback=self._on_rms_threshold_selected)
