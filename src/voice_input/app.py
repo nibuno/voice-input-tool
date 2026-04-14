@@ -252,19 +252,21 @@ class VoiceInputApp(rumps.App):
         """Poll for hotkey events from the queue."""
         # Detect a silently-stalled audio callback (e.g., AUHAL thread hung
         # without any sleep/device-change notification). If we believe we're
-        # recording but no sample has arrived for a while, abort and reinit.
+        # recording but no sample has arrived for a while, trigger recovery
+        # off the main (rumps) thread — the stream is already hung, so
+        # stop()/abort() here would block the UI for up to 1 second each.
         if self._is_recording and self.recorder.is_recording:
             idle = self.recorder.seconds_since_last_callback()
             if idle is not None and idle > CALLBACK_STALL_THRESHOLD_SEC:
                 logger.warning(
-                    "App: Audio callback stalled for %.1fs — forcing stop + reinit",
+                    "App: Audio callback stalled for %.1fs — offloading recovery",
                     idle,
                 )
+                # Flip flags eagerly so we don't re-enter this branch on the
+                # next 50ms tick while the worker is still running.
                 self._auto_stopped = True
                 self._is_recording = False
-                self._stop_recording()
-                self._event_queue.put("status:Ready (recovered from stall)")
-                self._event_queue.put("reinitialize")
+                self._event_queue.put("stall_recover")
                 return
 
         # Auto-stop for toggle mode if recording exceeds max duration
@@ -299,6 +301,10 @@ class VoiceInputApp(rumps.App):
                 elif event == "reinitialize":
                     threading.Thread(
                         target=self._reinitialize_audio, daemon=True
+                    ).start()
+                elif event == "stall_recover":
+                    threading.Thread(
+                        target=self._recover_from_stall, daemon=True
                     ).start()
                 elif event == "system_wake":
                     threading.Thread(
@@ -361,6 +367,30 @@ class VoiceInputApp(rumps.App):
             self._event_queue.put(f"error:Audio reinit failed: {e}")
         finally:
             self._reinit_lock.release()
+
+    def _recover_from_stall(self) -> None:
+        """Stop the hung stream and reinitialize, all off the main thread.
+
+        The main thread should never call ``recorder.stop()`` after a detected
+        stall: the AUHAL callback thread is stuck, so ``abort()`` will hit its
+        timeout and block the menu bar for a full second. Do both ``stop`` and
+        ``reinitialize`` here, and tell the user the in-flight recording is gone.
+        """
+        logger.info("App: Recovering from callback stall")
+        try:
+            # Drain the (empty) buffer and mark the recorder as stopped.
+            self.recorder.stop()
+        except sd.PortAudioError as e:
+            logger.warning(f"App: stop() during stall recovery raised: {e}")
+        # Tell the user their recording was lost — the "Processing..." UI
+        # they were about to see will not have any text to paste.
+        self.title = "Voice Input"
+        self.status_item.title = "Status: Ready (stall recovered)"
+        self._notify_error(
+            "マイクが応答しなくなったため録音を破棄しました。もう一度お試しください。"
+        )
+        # Hand reinitialize off to the existing worker so its lock is honored.
+        self._event_queue.put("reinitialize")
 
     # ------------------------------------------------------------------
     # Sleep / wake / device change handlers
@@ -547,6 +577,15 @@ class VoiceInputApp(rumps.App):
                 self.recorder.start()
                 logger.info("App: Recording started after reinitialize")
                 return
+            except UnrecoverableAudioError as reinit_err:
+                # PortAudio mutex is lost — any subsequent stream op would
+                # deadlock. Must bypass the generic RuntimeError handler below
+                # (UnrecoverableAudioError is a RuntimeError subclass).
+                logger.error(
+                    f"App: Unrecoverable audio state on start: {reinit_err} — self-restart"
+                )
+                self._notify_error("音声ストリームが復旧不能のため再起動します")
+                schedule_self_restart(f"start reinit: {reinit_err}")
             except (RuntimeError, sd.PortAudioError) as reinit_err:
                 logger.exception(
                     f"App: Failed to reinitialize/start recording: {reinit_err}"
