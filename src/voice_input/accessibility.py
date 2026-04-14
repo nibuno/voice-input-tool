@@ -1,5 +1,7 @@
 """Accessibility permission check for macOS (pyobjc-backed)."""
 
+import sys
+
 from .logger import get_logger
 
 logger = get_logger()
@@ -19,16 +21,30 @@ def check_accessibility_permission(prompt: bool = True) -> bool:
             when not granted.
 
     Returns:
-        True if permission is granted (or we're not on macOS); False otherwise.
+        True if permission is granted; False if denied or if the check
+        itself failed. On non-macOS platforms the check is skipped and
+        True is returned so the app can start up at all.
     """
+    # On non-macOS we skip the permission check so the app can start for
+    # development/test purposes. The rest of the app obviously won't work,
+    # but that surfaces as a different error, not a false negative here.
+    if sys.platform != "darwin":
+        return True
+
     try:
         from ApplicationServices import (
             AXIsProcessTrustedWithOptions,
             kAXTrustedCheckOptionPrompt,
         )
-    except ImportError:
-        # Not on macOS, or pyobjc not available — assume OK.
-        return True
+    except ImportError as exc:
+        # On macOS this means pyobjc failed to load (missing install, broken
+        # bundle, etc.). Don't silently claim trust — the user would only
+        # notice later when paste stops working. Return False and log loudly.
+        logger.warning(
+            "Accessibility check unavailable — failed to import "
+            f"ApplicationServices: {exc}"
+        )
+        return False
 
     options = {kAXTrustedCheckOptionPrompt: True} if prompt else None
     try:

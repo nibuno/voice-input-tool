@@ -14,8 +14,10 @@ def fake_application_services(monkeypatch):
     """Install a fake ApplicationServices module exposing the two names we use.
 
     Returns the mock ``AXIsProcessTrustedWithOptions`` so tests can configure
-    its return value and assert call arguments.
+    its return value and assert call arguments. Also pins sys.platform to
+    "darwin" so the platform guard lets the check proceed.
     """
+    monkeypatch.setattr(sys, "platform", "darwin")
     module = types.ModuleType("ApplicationServices")
     module.kAXTrustedCheckOptionPrompt = "AXTrustedCheckOptionPrompt"
     module.AXIsProcessTrustedWithOptions = MagicMock(return_value=True)
@@ -45,11 +47,21 @@ def test_prompt_false_passes_none(fake_application_services):
     fake_application_services.AXIsProcessTrustedWithOptions.assert_called_once_with(None)
 
 
-def test_returns_true_when_pyobjc_unavailable(monkeypatch):
-    """On non-macOS platforms ApplicationServices isn't importable; assume OK."""
-    # Simulate ImportError by inserting a module that raises on attribute access.
+def test_returns_true_on_non_darwin(monkeypatch):
+    """Non-macOS platforms skip the check entirely so the app can still start."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    # Even if ApplicationServices is unavailable, we short-circuit before import.
     monkeypatch.setitem(sys.modules, "ApplicationServices", None)
     assert check_accessibility_permission() is True
+
+
+def test_returns_false_when_pyobjc_import_fails_on_darwin(monkeypatch):
+    """On macOS, an ImportError means pyobjc is broken — do not claim trust."""
+    monkeypatch.setattr(sys, "platform", "darwin")
+    # Setting the module entry to None causes `from ApplicationServices import ...`
+    # to raise ImportError per the import system's contract.
+    monkeypatch.setitem(sys.modules, "ApplicationServices", None)
+    assert check_accessibility_permission() is False
 
 
 def test_framework_exception_returns_false(fake_application_services):
