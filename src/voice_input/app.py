@@ -11,7 +11,12 @@ import rumps
 import sounddevice as sd
 
 from .accessibility import check_accessibility_permission
-from .config import load_config, save_config
+from .config import (
+    VALID_OUTPUT_MODES,
+    VALID_RMS_THRESHOLDS,
+    load_config,
+    save_config,
+)
 from .device_monitor import DeviceMonitor
 from .hotkey import HOTKEY_NAMES, HotkeyListener
 from .logger import get_logger
@@ -46,6 +51,12 @@ MODE_NAMES = {
     "toggle": "Toggle (押すたびに切替)",
 }
 
+# Output mode labels for menu display
+OUTPUT_MODE_NAMES = {
+    "copy_paste": "Copy & Paste",
+    "paste_enter": "Paste + Enter (preserve clipboard)",
+}
+
 
 class VoiceInputApp(rumps.App):
     """Mac menu bar application for voice input using Whisper API."""
@@ -65,6 +76,9 @@ class VoiceInputApp(rumps.App):
         self._rms_threshold = self._config.get("rms_threshold", MIN_RMS_THRESHOLD)
         self._current_input_device_name = self._config.get("input_device")
         self._max_recording_seconds = self._config.get("max_recording_seconds", 30.0)
+        self._output_mode = self._config.get("output_mode", "copy_paste")
+        if self._output_mode not in VALID_OUTPUT_MODES:
+            self._output_mode = "copy_paste"
 
         # Toggle mode state
         self._is_recording = False
@@ -114,15 +128,73 @@ class VoiceInputApp(rumps.App):
         self._input_device_items = {}
         self._input_device_menu_populated = False
 
+        # RMS Threshold submenu (preset values only)
+        self.rms_menu = rumps.MenuItem("RMS Threshold")
+        self._rms_items: dict[int, rumps.MenuItem] = {}
+        self._build_rms_menu()
+
+        # Output submenu (copy_paste vs paste_enter)
+        self.output_menu = rumps.MenuItem("Output")
+        self._output_items: dict[str, rumps.MenuItem] = {}
+        self._build_output_menu()
+
         self.menu = [
             self.status_item,
             None,  # Separator
             self.hotkey_menu,
             self.mode_menu,
             self.input_device_menu,
+            self.rms_menu,
+            self.output_menu,
             rumps.MenuItem("Language: Japanese"),
         ]
         self._input_device_menu_populated = self._populate_input_device_menu()
+
+    def _build_rms_menu(self) -> None:
+        """Populate the RMS threshold submenu with preset values."""
+        self._rms_items = {}
+        for value in VALID_RMS_THRESHOLDS:
+            label = f"{value}" + (" (default)" if value == 100 else "")
+            item = rumps.MenuItem(label, callback=self._on_rms_threshold_selected)
+            item.rms_value = value
+            if value == self._rms_threshold:
+                item.state = 1
+            self._rms_items[value] = item
+            self.rms_menu.add(item)
+
+    def _on_rms_threshold_selected(self, sender: rumps.MenuItem) -> None:
+        """Handle RMS threshold preset selection."""
+        value = sender.rms_value
+        for item in self._rms_items.values():
+            item.state = 0
+        sender.state = 1
+        self._rms_threshold = value
+        self._config["rms_threshold"] = value
+        save_config(self._config)
+        logger.info(f"App: RMS threshold changed to {value}")
+
+    def _build_output_menu(self) -> None:
+        """Populate the Output submenu with available output modes."""
+        self._output_items = {}
+        for mode_id in VALID_OUTPUT_MODES:
+            label = OUTPUT_MODE_NAMES.get(mode_id, mode_id)
+            item = rumps.MenuItem(label, callback=self._on_output_mode_selected)
+            item.output_mode_id = mode_id
+            if mode_id == self._output_mode:
+                item.state = 1
+            self._output_items[mode_id] = item
+            self.output_menu.add(item)
+
+    def _on_output_mode_selected(self, sender: rumps.MenuItem) -> None:
+        """Handle output mode selection."""
+        mode_id = sender.output_mode_id
+        for item in self._output_items.values():
+            item.state = 0
+        sender.state = 1
+        self._output_mode = mode_id
+        self._config["output_mode"] = mode_id
+        save_config(self._config)
+        logger.info(f"App: Output mode changed to {mode_id}")
 
     def _on_hotkey_selected(self, sender: rumps.MenuItem) -> None:
         """Handle hotkey selection from menu."""
@@ -655,8 +727,8 @@ class VoiceInputApp(rumps.App):
             logger.info(f"App: Transcription complete ({len(text)} chars)")
 
             if text and text.strip():
-                logger.debug("App: Outputting text")
-                output_text(text)
+                logger.debug(f"App: Outputting text (mode={self._output_mode})")
+                output_text(text, mode=self._output_mode)
                 self._event_queue.put("status:Ready")
                 logger.info("App: Processing complete")
             else:
