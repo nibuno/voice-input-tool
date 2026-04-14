@@ -11,9 +11,12 @@ DEFAULT_CONFIG = {
     "rms_threshold": 100,
     "input_device": None,
     "max_recording_seconds": 120.0,
+    "output_mode": "copy_paste",
 }
 
 VALID_HOTKEYS = ["ctrl_l", "ctrl_r", "alt_l", "alt_r"]
+VALID_OUTPUT_MODES = ["copy_paste", "paste_enter"]
+VALID_RMS_THRESHOLDS = [30, 50, 100, 200]
 
 
 def load_config() -> dict:
