@@ -19,6 +19,15 @@ VALID_OUTPUT_MODES = ["copy_paste", "paste_enter"]
 VALID_RMS_THRESHOLDS = [30, 50, 100, 200]
 
 
+def normalize_max_recording_seconds(value: object) -> float:
+    """Return a safe max recording duration in seconds."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return DEFAULT_CONFIG["max_recording_seconds"]
+    if value <= 0:
+        return DEFAULT_CONFIG["max_recording_seconds"]
+    return float(value)
+
+
 def load_config() -> dict:
     """Load configuration from file.
 
@@ -39,6 +48,9 @@ def load_config() -> dict:
                 config["input_device"] is None or isinstance(config["input_device"], str)
             ):
                 config["input_device"] = DEFAULT_CONFIG["input_device"]
+            config["max_recording_seconds"] = normalize_max_recording_seconds(
+                config.get("max_recording_seconds", DEFAULT_CONFIG["max_recording_seconds"])
+            )
             return config
     except (json.JSONDecodeError, OSError):
         return DEFAULT_CONFIG.copy()

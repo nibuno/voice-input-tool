@@ -15,6 +15,7 @@ from .config import (
     VALID_OUTPUT_MODES,
     VALID_RMS_THRESHOLDS,
     load_config,
+    normalize_max_recording_seconds,
     save_config,
 )
 from .device_monitor import DeviceMonitor
@@ -59,6 +60,8 @@ OUTPUT_MODE_NAMES = {
     "paste_enter": "Paste + Auto-Submit (keep clipboard)",
 }
 
+RECORDING_LIMIT_PRESETS = [30.0, 60.0, 120.0, 300.0]
+
 
 class VoiceInputApp(rumps.App):
     """Mac menu bar application for voice input using Whisper API."""
@@ -86,7 +89,10 @@ class VoiceInputApp(rumps.App):
             rms_raw = MIN_RMS_THRESHOLD
         self._rms_threshold = rms_raw
         self._current_input_device_name = self._config.get("input_device")
-        self._max_recording_seconds = self._config.get("max_recording_seconds", 30.0)
+        self._max_recording_seconds = normalize_max_recording_seconds(
+            self._config.get("max_recording_seconds", 120.0)
+        )
+        self._config["max_recording_seconds"] = self._max_recording_seconds
         self._output_mode = self._config.get("output_mode", "copy_paste")
         if self._output_mode not in VALID_OUTPUT_MODES:
             self._output_mode = "copy_paste"
@@ -144,6 +150,11 @@ class VoiceInputApp(rumps.App):
         self._rms_items: dict[int, rumps.MenuItem] = {}
         self._build_rms_menu()
 
+        # Recording limit submenu (preset values + custom input)
+        self.recording_limit_menu = rumps.MenuItem("Recording Limit")
+        self._recording_limit_items: dict[float, rumps.MenuItem] = {}
+        self._build_recording_limit_menu()
+
         # Output submenu (copy_paste vs paste_enter)
         self.output_menu = rumps.MenuItem("Output")
         self._output_items: dict[str, rumps.MenuItem] = {}
@@ -156,6 +167,7 @@ class VoiceInputApp(rumps.App):
             self.mode_menu,
             self.input_device_menu,
             self.rms_menu,
+            self.recording_limit_menu,
             self.output_menu,
             rumps.MenuItem("Language: Japanese"),
         ]
@@ -197,6 +209,83 @@ class VoiceInputApp(rumps.App):
         self._config["rms_threshold"] = value
         save_config(self._config)
         logger.info(f"App: RMS threshold changed to {value}")
+
+    def _build_recording_limit_menu(self) -> None:
+        """Populate the recording limit submenu with presets and custom input."""
+        self._recording_limit_items = {}
+        self._clear_menu_if_attached(self.recording_limit_menu)
+
+        current_label = self._format_recording_limit_label(self._max_recording_seconds)
+        current = rumps.MenuItem(f"Current: {current_label}")
+        current.state = 1
+        self.recording_limit_menu.add(current)
+        self.recording_limit_menu.add(None)
+
+        for value in RECORDING_LIMIT_PRESETS:
+            label = self._format_recording_limit_label(value)
+            if value == 120.0:
+                label += " (default)"
+            item = rumps.MenuItem(label, callback=self._on_recording_limit_selected)
+            item.max_recording_seconds = value
+            if value == self._max_recording_seconds:
+                item.state = 1
+            self._recording_limit_items[value] = item
+            self.recording_limit_menu.add(item)
+
+        self.recording_limit_menu.add(None)
+        self.recording_limit_menu.add(
+            rumps.MenuItem("Custom...", callback=self._on_custom_recording_limit_selected)
+        )
+
+    @staticmethod
+    def _clear_menu_if_attached(menu_item: rumps.MenuItem) -> None:
+        """Clear a submenu only after rumps has attached its native menu object."""
+        if getattr(menu_item, "_menu", None) is not None:
+            menu_item.clear()
+
+    def _format_recording_limit_label(self, value: float) -> str:
+        """Return a human-friendly label for a recording limit."""
+        if value.is_integer():
+            return f"{int(value)} seconds"
+        return f"{value:g} seconds"
+
+    def _set_recording_limit(self, value: float) -> None:
+        """Apply and persist a new recording limit."""
+        self._max_recording_seconds = value
+        self._config["max_recording_seconds"] = value
+        save_config(self._config)
+        self._build_recording_limit_menu()
+        logger.info("App: Recording limit changed to %.1fs", value)
+
+    def _on_recording_limit_selected(self, sender: rumps.MenuItem) -> None:
+        """Handle recording limit preset selection."""
+        self._set_recording_limit(sender.max_recording_seconds)
+
+    def _on_custom_recording_limit_selected(self, _sender: rumps.MenuItem) -> None:
+        """Prompt for a custom recording limit in seconds."""
+        window = rumps.Window(
+            message="Set toggle-mode auto-stop in seconds.",
+            title="Recording Limit",
+            default_text=f"{self._max_recording_seconds:g}",
+            ok="Save",
+            cancel=True,
+        )
+        response = window.run()
+        if not getattr(response, "clicked", False):
+            return
+
+        raw_value = response.text.strip()
+        try:
+            value = float(raw_value)
+        except ValueError:
+            self._notify_error("録音上限は秒数で入力してください")
+            return
+
+        if value <= 0:
+            self._notify_error("録音上限は0より大きい秒数にしてください")
+            return
+
+        self._set_recording_limit(value)
 
     def _build_output_menu(self) -> None:
         """Populate the Output submenu with available output modes."""

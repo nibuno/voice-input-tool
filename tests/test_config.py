@@ -8,6 +8,7 @@ import pytest
 from voice_input.config import (
     DEFAULT_CONFIG,
     load_config,
+    normalize_max_recording_seconds,
     save_config,
 )
 
@@ -100,6 +101,48 @@ class TestLoadConfig:
 
         # Assert
         assert result["input_device"] is None
+
+    def test_invalid_max_recording_seconds_falls_back(self, config_dir: Path) -> None:
+        # Arrange
+        config_dir.mkdir(parents=True)
+        config_file = config_dir / "config.json"
+        config_file.write_text(
+            json.dumps({"hotkey": "ctrl_l", "max_recording_seconds": -5})
+        )
+
+        # Act
+        result = load_config()
+
+        # Assert
+        assert result["max_recording_seconds"] == DEFAULT_CONFIG["max_recording_seconds"]
+
+
+class TestNormalizeMaxRecordingSeconds:
+    """Tests for max recording duration normalization."""
+
+    def test_accepts_positive_numbers(self) -> None:
+        assert normalize_max_recording_seconds(45) == 45.0
+        assert normalize_max_recording_seconds(12.5) == 12.5
+
+    def test_rejects_non_positive_values(self) -> None:
+        assert (
+            normalize_max_recording_seconds(0)
+            == DEFAULT_CONFIG["max_recording_seconds"]
+        )
+        assert (
+            normalize_max_recording_seconds(-1)
+            == DEFAULT_CONFIG["max_recording_seconds"]
+        )
+
+    def test_rejects_non_numeric_values(self) -> None:
+        assert (
+            normalize_max_recording_seconds("120")
+            == DEFAULT_CONFIG["max_recording_seconds"]
+        )
+        assert (
+            normalize_max_recording_seconds(True)
+            == DEFAULT_CONFIG["max_recording_seconds"]
+        )
 
 
 class TestSaveConfig:
