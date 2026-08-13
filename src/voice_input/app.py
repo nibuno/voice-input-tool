@@ -846,14 +846,13 @@ class VoiceInputApp(rumps.App):
             self._transcript_overlay.hide()
 
     def _stop_realtime_overlay(self) -> RealtimeTranscriber | None:
-        """Detach and stop live transcription without delaying final output."""
+        """Hide the panel immediately, then finish transcription in background."""
         self.recorder.set_chunk_callback(None)
+        self._transcript_overlay.hide()
         transcriber = self._realtime_transcriber
         self._realtime_transcriber = None
         if transcriber is not None:
             transcriber.stop()
-        else:
-            self._transcript_overlay.hide()
         return transcriber
 
     def _process_audio(
