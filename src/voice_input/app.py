@@ -28,8 +28,10 @@ from .recorder import (
     UnrecoverableAudioError,
     save_audio,
 )
+from .realtime_transcriber import RealtimeTranscriber
 from .restart import schedule_self_restart
 from .transcriber import transcribe
+from .transcript_overlay import TranscriptOverlay
 
 logger = get_logger()
 
@@ -105,6 +107,9 @@ class VoiceInputApp(rumps.App):
 
         self.recorder = StreamingRecorder()
         self._event_queue: queue.Queue[str] = queue.Queue()
+        self._transcript_overlay = TranscriptOverlay()
+        self._realtime_transcriber: RealtimeTranscriber | None = None
+        self._recording_session_id = 0
         self._reinit_lock = threading.Lock()
         self._device_monitor: DeviceMonitor | None = None
         self._configured_device_available: bool = True
@@ -517,6 +522,19 @@ class VoiceInputApp(rumps.App):
                     status = event[7:]
                     self.title = "Voice Input"
                     self.status_item.title = f"Status: {status}"
+                elif event.startswith("transcript:"):
+                    _, session_id, text = event.split(":", 2)
+                    if int(session_id) == self._recording_session_id:
+                        self._transcript_overlay.update(text)
+                elif event.startswith("transcript_error:"):
+                    _, session_id, message = event.split(":", 2)
+                    if int(session_id) == self._recording_session_id:
+                        logger.warning("App: Live transcript unavailable: %s", message)
+                        self._transcript_overlay.hide()
+                elif event.startswith("transcript_done:"):
+                    session_id = int(event[len("transcript_done:"):])
+                    if session_id == self._recording_session_id:
+                        self._transcript_overlay.hide()
                 elif event.startswith("error:"):
                     message = event[6:]
                     self.title = "Voice Input"
@@ -593,6 +611,7 @@ class VoiceInputApp(rumps.App):
             self._auto_stopped = True
             self._recording_start_time = None
             self.recorder.is_recording = False
+        self._stop_realtime_overlay()
         self.recorder.cleanup()
         self.title = "Voice Input"
         self.status_item.title = "Status: Sleeping..."
@@ -747,6 +766,7 @@ class VoiceInputApp(rumps.App):
             self.title = "Recording..."
             self.status_item.title = "Status: Recording..."
             self.recorder.start()
+            self._start_realtime_overlay()
             if self._current_mode == "toggle":
                 self._recording_start_time = time.monotonic()
                 self._last_timeout_log_second = None
@@ -761,6 +781,7 @@ class VoiceInputApp(rumps.App):
             try:
                 self.recorder.reinitialize()
                 self.recorder.start()
+                self._start_realtime_overlay()
                 logger.info("App: Recording started after reinitialize")
                 return
             except UnrecoverableAudioError as reinit_err:
@@ -782,6 +803,7 @@ class VoiceInputApp(rumps.App):
         """Stop recording and process audio."""
         logger.info("App: Stop recording triggered")
         self._recording_start_time = None
+        realtime_transcriber = self._stop_realtime_overlay()
         try:
             audio_data = self.recorder.stop()
             self.title = "Processing..."
@@ -791,14 +813,54 @@ class VoiceInputApp(rumps.App):
             logger.debug("App: Starting audio processing thread")
             threading.Thread(
                 target=self._process_audio,
-                args=(audio_data,),
+                args=(audio_data, realtime_transcriber),
                 daemon=True,
             ).start()
         except sd.PortAudioError as e:
             logger.exception(f"App: Failed to stop recording: {e}")
             self._event_queue.put(f"error:{e}")
 
-    def _process_audio(self, audio_data) -> None:
+    def _start_realtime_overlay(self) -> None:
+        """Start best-effort live transcription for the current recording."""
+        self._recording_session_id += 1
+        session_id = self._recording_session_id
+        try:
+            self._transcript_overlay.show()
+            transcriber = RealtimeTranscriber(
+                on_text=lambda text: self._event_queue.put(
+                    f"transcript:{session_id}:{text}"
+                ),
+                on_error=lambda message: self._event_queue.put(
+                    f"transcript_error:{session_id}:{message}"
+                ),
+                on_done=lambda: self._event_queue.put(
+                    f"transcript_done:{session_id}"
+                ),
+            )
+            self._realtime_transcriber = transcriber
+            self.recorder.set_chunk_callback(transcriber.submit)
+            transcriber.start()
+        except Exception:  # noqa: BLE001 - overlay is an optional enhancement
+            logger.exception("App: Failed to start realtime transcript overlay")
+            self.recorder.set_chunk_callback(None)
+            self._transcript_overlay.hide()
+
+    def _stop_realtime_overlay(self) -> RealtimeTranscriber | None:
+        """Detach and stop live transcription without delaying final output."""
+        self.recorder.set_chunk_callback(None)
+        transcriber = self._realtime_transcriber
+        self._realtime_transcriber = None
+        if transcriber is not None:
+            transcriber.stop()
+        else:
+            self._transcript_overlay.hide()
+        return transcriber
+
+    def _process_audio(
+        self,
+        audio_data,
+        realtime_transcriber: RealtimeTranscriber | None = None,
+    ) -> None:
         """Transcribe audio and output text (runs in background thread)."""
         logger.debug(f"App: Processing audio data ({len(audio_data)} samples)")
         if self._auto_stopped:
@@ -833,6 +895,21 @@ class VoiceInputApp(rumps.App):
 
         audio_path = None
         try:
+            realtime_text = None
+            if realtime_transcriber is not None:
+                realtime_text = realtime_transcriber.wait_for_final_transcript()
+
+            if realtime_text:
+                logger.info(
+                    "App: Using Realtime final transcript (%d chars)",
+                    len(realtime_text),
+                )
+                output_text(realtime_text, mode=self._output_mode)
+                self._event_queue.put("status:Ready")
+                logger.info("App: Processing complete")
+                return
+
+            logger.info("App: Realtime transcript unavailable; using Whisper fallback")
             logger.debug("App: Saving audio to file")
             audio_path = save_audio(audio_data)
 
@@ -860,6 +937,11 @@ class VoiceInputApp(rumps.App):
     def _cleanup(self) -> None:
         """Clean up resources on app termination."""
         logger.info("App: Cleanup triggered")
+        self.recorder.set_chunk_callback(None)
+        if self._realtime_transcriber is not None:
+            self._realtime_transcriber.close()
+            self._realtime_transcriber = None
+        self._transcript_overlay.hide()
         if self._device_monitor is not None:
             self._device_monitor.stop()
         self.hotkey_listener.stop()
