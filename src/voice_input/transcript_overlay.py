@@ -136,7 +136,7 @@ class TranscriptOverlay:
 
         label = NSTextField.labelWithString_("")
         label.setFrame_(NSMakeRect(42.0, 18.0, width - 66.0, height - 36.0))
-        label.setTextColor_(NSColor.whiteColor())
+        label.setTextColor_(NSColor.blackColor())
         label.setFont_(NSFont.systemFontOfSize_weight_(19.0, 0.35))
         label.setLineBreakMode_(NSLineBreakByWordWrapping)
         label.setMaximumNumberOfLines_(4)
@@ -146,8 +146,8 @@ class TranscriptOverlay:
         self._label = label
         self._attributed_string_class = NSMutableAttributedString
         self._foreground_color_attribute = NSForegroundColorAttributeName
-        self._muted_text_color = NSColor.whiteColor().colorWithAlphaComponent_(0.55)
-        self._current_text_color = NSColor.whiteColor().colorWithAlphaComponent_(0.96)
+        self._muted_text_color = NSColor.blackColor().colorWithAlphaComponent_(0.5)
+        self._current_text_color = NSColor.blackColor().colorWithAlphaComponent_(0.9)
 
     def show(self, text: str = "聞き取り中…") -> None:
         self._ensure_panel()
