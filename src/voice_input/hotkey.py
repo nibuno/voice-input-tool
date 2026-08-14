@@ -32,6 +32,7 @@ class HotkeyListener:
         self,
         on_press: Callable[[], None],
         on_release: Callable[[], None],
+        on_cancel: Callable[[], None] | None = None,
         hotkey: str = "ctrl_l",
     ) -> None:
         """Initialize the hotkey listener.
@@ -39,10 +40,12 @@ class HotkeyListener:
         Args:
             on_press: Callback when hotkey is pressed.
             on_release: Callback when hotkey is released.
+            on_cancel: Callback when Escape is pressed.
             hotkey: Hotkey identifier (ctrl_l, ctrl_r, alt_l, alt_r).
         """
         self._on_press = on_press
         self._on_release = on_release
+        self._on_cancel = on_cancel
         self._hotkey = HOTKEY_MAP.get(hotkey, keyboard.Key.ctrl_l)
         self._listener: keyboard.Listener | None = None
         self._is_pressed = False  # Debounce flag to prevent key repeat
@@ -63,7 +66,10 @@ class HotkeyListener:
         Only triggers callback if the key matches and not already pressed.
         The _is_pressed check prevents OS key repeat from triggering multiple times.
         """
-        if key == self._hotkey and not self._is_pressed:
+        if key == keyboard.Key.esc:
+            if self._on_cancel is not None:
+                self._on_cancel()
+        elif key == self._hotkey and not self._is_pressed:
             self._is_pressed = True
             self._on_press()
 

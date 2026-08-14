@@ -5,6 +5,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import sounddevice as sd
@@ -45,6 +46,17 @@ class StreamingRecorder:
         # Monotonic timestamp of the last audio callback while recording.
         # Used by the app to detect a silently-stalled AUHAL callback thread.
         self._last_callback_time: float | None = None
+        self._chunk_callback: Callable[[np.ndarray], None] | None = None
+
+    def set_chunk_callback(
+        self, callback: Callable[[np.ndarray], None] | None
+    ) -> None:
+        """Set a non-blocking observer for audio chunks captured while recording.
+
+        The callback runs on PortAudio's audio thread. It must return immediately
+        and must not perform network or UI work.
+        """
+        self._chunk_callback = callback
 
     def set_device(self, device: int | None) -> None:
         """Set the input device index (None = OS default)."""
@@ -94,7 +106,15 @@ class StreamingRecorder:
 
         if self.is_recording:
             self._last_callback_time = time.monotonic()
-            self._queue.put_nowait(indata.copy())
+            chunk = indata.copy()
+            self._queue.put_nowait(chunk)
+            callback = self._chunk_callback
+            if callback is not None:
+                try:
+                    callback(chunk)
+                except Exception:
+                    # A best-effort observer must never break audio capture.
+                    logger.exception("Audio chunk observer failed")
 
     def initialize(self) -> None:
         """Initialize the audio stream (call once at app startup).

@@ -116,3 +116,29 @@ class TestHotkeyListenerHoldMode:
         # Assert - state is reset, release on old key does nothing
         listener._handle_release(keyboard.Key.ctrl_l)
         on_release.assert_not_called()
+
+    def test_escape_triggers_cancel_callback(self):
+        on_cancel = Mock()
+        listener = HotkeyListener(
+            on_press=Mock(),
+            on_release=Mock(),
+            on_cancel=on_cancel,
+            hotkey="ctrl_l",
+        )
+
+        listener._handle_press(keyboard.Key.esc)
+
+        on_cancel.assert_called_once()
+
+    def test_escape_does_not_trigger_recording_hotkey(self):
+        on_press = Mock()
+        listener = HotkeyListener(
+            on_press=on_press,
+            on_release=Mock(),
+            on_cancel=Mock(),
+            hotkey="ctrl_l",
+        )
+
+        listener._handle_press(keyboard.Key.esc)
+
+        on_press.assert_not_called()

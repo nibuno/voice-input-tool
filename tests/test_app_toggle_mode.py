@@ -6,6 +6,8 @@ the full VoiceInputApp class, which requires complex rumps mocking.
 
 from unittest.mock import Mock
 
+from voice_input.app import VoiceInputApp
+
 
 class RecordingModeController:
     """Helper class that implements the mode logic for testing.
@@ -174,3 +176,51 @@ class TestModeSwitch:
         controller = RecordingModeController()
 
         assert controller._mode == "hold"
+
+
+class TestEscapeCancellation:
+    def test_cancel_discards_active_recording(self):
+        app = VoiceInputApp.__new__(VoiceInputApp)
+        app.recorder = Mock(is_recording=True)
+        app.recorder.stop.return_value = Mock()
+        app._current_mode = "toggle"
+        app._is_recording = True
+        app._recording_start_time = 1.0
+        app._last_timeout_log_second = 1
+        app._ignore_next_hotkey_release = False
+        app._recording_session_id = 3
+        app._realtime_transcriber = Mock()
+        app._transcript_overlay = Mock()
+        app._event_queue = Mock()
+        app.status_item = Mock()
+
+        app._cancel_recording()
+
+        app.recorder.set_chunk_callback.assert_called_once_with(None)
+        app.recorder.stop.assert_called_once()
+        app._transcript_overlay.hide.assert_called_once()
+        assert app._realtime_transcriber is None
+        assert app._recording_session_id == 4
+        assert app._is_recording is False
+        assert app.status_item.title == "Status: Ready"
+
+    def test_cancel_ignores_release_in_hold_mode(self):
+        app = VoiceInputApp.__new__(VoiceInputApp)
+        app.recorder = Mock(is_recording=True)
+        app._current_mode = "hold"
+        app._is_recording = False
+        app._recording_start_time = None
+        app._last_timeout_log_second = None
+        app._ignore_next_hotkey_release = False
+        app._recording_session_id = 1
+        app._realtime_transcriber = None
+        app._transcript_overlay = Mock()
+        app._event_queue = Mock()
+        app.status_item = Mock()
+
+        app._cancel_recording()
+        app._stop_recording = Mock()
+        app._on_hotkey_release()
+
+        app._stop_recording.assert_not_called()
+        assert app._ignore_next_hotkey_release is False
