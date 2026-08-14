@@ -104,6 +104,7 @@ class VoiceInputApp(rumps.App):
         self._recording_start_time: float | None = None
         self._last_timeout_log_second: int | None = None
         self._auto_stopped = False
+        self._ignore_next_hotkey_release = False
 
         self.recorder = StreamingRecorder()
         self._event_queue: queue.Queue[str] = queue.Queue()
@@ -117,6 +118,7 @@ class VoiceInputApp(rumps.App):
         self.hotkey_listener = HotkeyListener(
             on_press=lambda: self._event_queue.put("press"),
             on_release=lambda: self._event_queue.put("release"),
+            on_cancel=lambda: self._event_queue.put("cancel"),
             hotkey=self._current_hotkey,
         )
 
@@ -489,6 +491,8 @@ class VoiceInputApp(rumps.App):
                     self._on_hotkey_press()
                 elif event == "release":
                     self._on_hotkey_release()
+                elif event == "cancel":
+                    self._cancel_recording()
                 elif event == "reinitialize":
                     threading.Thread(
                         target=self._reinitialize_audio, daemon=True
@@ -746,8 +750,39 @@ class VoiceInputApp(rumps.App):
 
     def _on_hotkey_release(self) -> None:
         """Handle hotkey release based on current mode."""
+        if self._ignore_next_hotkey_release:
+            self._ignore_next_hotkey_release = False
+            return
         if self._current_mode == "hold":
             self._stop_recording()
+
+    def _cancel_recording(self) -> None:
+        """Discard the active recording without transcribing or outputting it."""
+        if not self.recorder.is_recording:
+            return
+
+        logger.info("App: Recording cancelled with Escape")
+        self._recording_start_time = None
+        self._last_timeout_log_second = None
+        self._is_recording = False
+        self._ignore_next_hotkey_release = self._current_mode == "hold"
+        self.recorder.set_chunk_callback(None)
+        self._recording_session_id += 1
+        transcriber = self._realtime_transcriber
+        self._realtime_transcriber = None
+        if transcriber is not None:
+            transcriber.close()
+        self._transcript_overlay.hide()
+
+        try:
+            self.recorder.stop()
+        except sd.PortAudioError as exc:
+            logger.exception("App: Failed to cancel recording: %s", exc)
+            self._event_queue.put(f"error:{exc}")
+            return
+
+        self.title = "Voice Input"
+        self.status_item.title = "Status: Ready"
 
     def _start_recording(self) -> None:
         """Start recording audio."""
