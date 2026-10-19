@@ -107,6 +107,34 @@ alias voice="/path/to/voice-input-tool/.venv/bin/voice-input-app"
 - メニューの「Input Device」から入力デバイスを固定できます（System Default でOSのデフォルトに戻ります）
 - デバイスの抜き差し後は「Refresh Devices」で一覧を更新できます
 - Toggleモードでは長時間録音を防ぐため、デフォルトで120秒で自動停止します（`max_recording_seconds`またはメニューの`Recording Limit`で変更可能）
+- メニューの「Show Pet」で、画面右下にペットを表示できます（後述）
+
+### ペット機能
+
+メニューの「Show Pet」をオンにすると、画面右下にペットが表示され、アプリの状態に合わせて見た目が変わります。
+
+| 状態 | ファイル名 | 画像がないときの表示 |
+|---|---|---|
+| 待機中 | `idle` | 🐱 |
+| 録音中 | `listening` | 👂 |
+| 文字起こし中 | `thinking` | 💭 |
+| ペースト完了（数秒） | `happy` | 😸 |
+| エラー（数秒） | `sad` | 😿 |
+
+画像は `~/.voice-input/pet/` に `<ファイル名>.gif` または `<ファイル名>.png` として置きます（例: `~/.voice-input/pet/idle.png`）。GIF はアニメーション再生され、背景が透過の画像ならキャラだけが表示されます。
+
+ファイル名を変えずに使いたい場合は、`~/.voice-input/config.json` で状態ごとに指定できます。
+
+```json
+{
+  "pet_images": {
+    "idle": "nekochan_smile.png",
+    "listening": "nekochan_wave.gif"
+  }
+}
+```
+
+画像はこのリポジトリには含まれていません。たとえば [しかまつさんのネコチャン絵文字](https://note.com/shikamatsu/n/nd217dc0617db) を使う場合は、配布ページからダウンロードし、[利用のおやくそく](https://note.com/shikamatsu/n/n8818bb5ebea1) を守って各自の環境でお使いください。
 
 ### CLIの使い方
 

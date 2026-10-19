@@ -22,6 +22,7 @@ from .device_monitor import DeviceMonitor
 from .hotkey import HOTKEY_NAMES, HotkeyListener
 from .logger import get_logger
 from .output import output_text
+from .pet import DesktopPet, PetState
 from .recorder import (
     SAMPLE_RATE,
     StreamingRecorder,
@@ -109,6 +110,13 @@ class VoiceInputApp(rumps.App):
         self.recorder = StreamingRecorder()
         self._event_queue: queue.Queue[str] = queue.Queue()
         self._transcript_overlay = TranscriptOverlay()
+        self._pet_enabled = self._config.get("pet_enabled") is True
+        pet_images = self._config.get("pet_images")
+        self._pet = DesktopPet(
+            overrides=pet_images if isinstance(pet_images, dict) else None
+        )
+        # AppKit windows can only be shown once the run loop has started.
+        self._pet_show_pending = self._pet_enabled
         self._realtime_transcriber: RealtimeTranscriber | None = None
         self._recording_session_id = 0
         self._reinit_lock = threading.Lock()
@@ -167,6 +175,9 @@ class VoiceInputApp(rumps.App):
         self._output_items: dict[str, rumps.MenuItem] = {}
         self._build_output_menu()
 
+        self.pet_item = rumps.MenuItem("Show Pet", callback=self._on_pet_toggled)
+        self.pet_item.state = int(self._pet_enabled)
+
         self.menu = [
             self.status_item,
             None,  # Separator
@@ -176,6 +187,7 @@ class VoiceInputApp(rumps.App):
             self.rms_menu,
             self.recording_limit_menu,
             self.output_menu,
+            self.pet_item,
             rumps.MenuItem("Language: Japanese"),
         ]
         self._input_device_menu_populated = self._populate_input_device_menu()
@@ -317,6 +329,22 @@ class VoiceInputApp(rumps.App):
         save_config(self._config)
         logger.info(f"App: Output mode changed to {mode_id}")
 
+    def _on_pet_toggled(self, sender: rumps.MenuItem) -> None:
+        """Show or hide the desktop pet."""
+        self._pet_enabled = not self._pet_enabled
+        sender.state = int(self._pet_enabled)
+        if self._pet_enabled:
+            self._pet.show()
+        else:
+            self._pet.hide()
+        self._config["pet_enabled"] = self._pet_enabled
+        save_config(self._config)
+        logger.info(f"App: Pet {'shown' if self._pet_enabled else 'hidden'}")
+
+    def _set_pet_state(self, state: PetState) -> None:
+        """Update the pet; must be called on the main thread."""
+        self._pet.set_state(state, time.monotonic())
+
     def _on_hotkey_selected(self, sender: rumps.MenuItem) -> None:
         """Handle hotkey selection from menu."""
         key_id = sender.key_id
@@ -443,6 +471,11 @@ class VoiceInputApp(rumps.App):
     @rumps.timer(0.05)
     def _check_events(self, _sender: object) -> None:
         """Poll for hotkey events from the queue."""
+        if self._pet_show_pending:
+            self._pet_show_pending = False
+            self._pet.show()
+        self._pet.tick(time.monotonic())
+
         # Detect a silently-stalled audio callback (e.g., AUHAL thread hung
         # without any sleep/device-change notification). If we believe we're
         # recording but no sample has arrived for a while, trigger recovery
@@ -522,8 +555,13 @@ class VoiceInputApp(rumps.App):
                     self.title = "Voice Input"
                     self.status_item.title = "Status: Ready"
                     logger.info(f"App: '{device_name}' reconnected and ready")
+                elif event == "pet:happy":
+                    self._set_pet_state(PetState.HAPPY)
                 elif event.startswith("status:"):
                     status = event[7:]
+                    # Processing ended without output (too short, no speech, ...).
+                    if self._pet.state == PetState.THINKING:
+                        self._set_pet_state(PetState.IDLE)
                     self.title = "Voice Input"
                     self.status_item.title = f"Status: {status}"
                 elif event.startswith("transcript:"):
@@ -543,6 +581,7 @@ class VoiceInputApp(rumps.App):
                     message = event[6:]
                     self.title = "Voice Input"
                     self.status_item.title = "Status: Error"
+                    self._set_pet_state(PetState.SAD)
                     self._notify_error(message)
         except queue.Empty:
             # No events in queue; return to the timer loop.
@@ -773,6 +812,7 @@ class VoiceInputApp(rumps.App):
         if transcriber is not None:
             transcriber.close()
         self._transcript_overlay.hide()
+        self._set_pet_state(PetState.IDLE)
 
         try:
             self.recorder.stop()
@@ -801,6 +841,7 @@ class VoiceInputApp(rumps.App):
             self.title = "Recording..."
             self.status_item.title = "Status: Recording..."
             self.recorder.start()
+            self._set_pet_state(PetState.LISTENING)
             self._start_realtime_overlay()
             if self._current_mode == "toggle":
                 self._recording_start_time = time.monotonic()
@@ -816,6 +857,7 @@ class VoiceInputApp(rumps.App):
             try:
                 self.recorder.reinitialize()
                 self.recorder.start()
+                self._set_pet_state(PetState.LISTENING)
                 self._start_realtime_overlay()
                 logger.info("App: Recording started after reinitialize")
                 return
@@ -843,6 +885,7 @@ class VoiceInputApp(rumps.App):
             audio_data = self.recorder.stop()
             self.title = "Processing..."
             self.status_item.title = "Status: Processing..."
+            self._set_pet_state(PetState.THINKING)
 
             # Process in background thread
             logger.debug("App: Starting audio processing thread")
@@ -939,6 +982,7 @@ class VoiceInputApp(rumps.App):
                     len(realtime_text),
                 )
                 output_text(realtime_text, mode=self._output_mode)
+                self._event_queue.put("pet:happy")
                 self._event_queue.put("status:Ready")
                 logger.info("App: Processing complete")
                 return
@@ -954,6 +998,7 @@ class VoiceInputApp(rumps.App):
             if text and text.strip():
                 logger.debug(f"App: Outputting text (mode={self._output_mode})")
                 output_text(text, mode=self._output_mode)
+                self._event_queue.put("pet:happy")
                 self._event_queue.put("status:Ready")
                 logger.info("App: Processing complete")
             else:
@@ -976,6 +1021,7 @@ class VoiceInputApp(rumps.App):
             self._realtime_transcriber.close()
             self._realtime_transcriber = None
         self._transcript_overlay.hide()
+        self._pet.hide()
         if self._device_monitor is not None:
             self._device_monitor.stop()
         self.hotkey_listener.stop()
