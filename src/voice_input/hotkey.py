@@ -96,6 +96,7 @@ class HotkeyListener:
         if self._listener:
             self._listener.stop()
             self._listener = None
+        self._is_pressed = False
 
     @property
     def is_pressed(self) -> bool:

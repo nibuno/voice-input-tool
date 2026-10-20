@@ -7,6 +7,16 @@ from pynput import keyboard
 from voice_input.hotkey import HotkeyListener
 
 
+def test_stop_clears_held_key_before_listener_restarts():
+    on_press = Mock()
+    listener = HotkeyListener(on_press=on_press, on_release=Mock())
+    listener._handle_press(keyboard.Key.ctrl_l)
+    listener.stop()
+    assert not listener.is_pressed
+    listener._handle_press(keyboard.Key.ctrl_l)
+    assert on_press.call_count == 2
+
+
 class TestHotkeyListenerHoldMode:
     """Tests for hold-to-record mode (existing behavior).
 

@@ -10,7 +10,6 @@ import openai
 import rumps
 import sounddevice as sd
 
-from .accessibility import check_accessibility_permission
 from .config import (
     VALID_OUTPUT_MODES,
     VALID_RMS_THRESHOLDS,
@@ -22,6 +21,7 @@ from .device_monitor import DeviceMonitor
 from .hotkey import HOTKEY_NAMES, HotkeyListener
 from .logger import get_logger
 from .output import output_text
+from .permissions import ensure_permissions
 from .recorder import (
     SAMPLE_RATE,
     StreamingRecorder,
@@ -169,6 +169,7 @@ class VoiceInputApp(rumps.App):
 
         self.menu = [
             self.status_item,
+            rumps.MenuItem("権限設定...", callback=self._on_permission_setup),
             None,  # Separator
             self.hotkey_menu,
             self.mode_menu,
@@ -179,6 +180,20 @@ class VoiceInputApp(rumps.App):
             rumps.MenuItem("Language: Japanese"),
         ]
         self._input_device_menu_populated = self._populate_input_device_menu()
+
+    def _on_permission_setup(self, _sender: rumps.MenuItem) -> None:
+        from .permission_setup import show_permission_setup
+
+        if self._is_recording or self.title == "Processing...":
+            self._notify_error(
+                "録音や文字起こしが終わってから権限設定を開いてください"
+            )
+            return
+        self.hotkey_listener.stop()
+        try:
+            show_permission_setup()
+        finally:
+            self.hotkey_listener.start()
 
     def _build_rms_menu(self) -> None:
         """Populate the RMS threshold submenu with preset values.
@@ -1039,6 +1054,10 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Voice Input - Mac menu bar app")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
+    parser.add_argument(
+        "--setup", action="store_true",
+        help="Open permission setup without recording or requiring an API key",
+    )
     args = parser.parse_args()
 
     if args.debug:
@@ -1046,15 +1065,18 @@ def main() -> None:
 
     load_dotenv()
 
+    if args.setup:
+        from .permission_setup import show_permission_setup
+
+        show_permission_setup()
+        return
+
+    if not ensure_permissions():
+        return
+
     if not os.environ.get("OPENAI_API_KEY"):
         print("Error: OPENAI_API_KEY environment variable is not set")
         print("Please create a .env file with your API key")
-        return
-
-    if not check_accessibility_permission(prompt=True):
-        print("Error: アクセシビリティ権限が必要です")
-        print("システム設定 > プライバシーとセキュリティ > アクセシビリティ")
-        print("で Voice Input を許可してください")
         return
 
     app = VoiceInputApp(debug=args.debug)
