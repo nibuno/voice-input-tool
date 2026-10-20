@@ -21,12 +21,24 @@ from AppKit import (
 )
 from Foundation import NSObject, NSRunLoop, NSTimer
 
+from .logger import get_logger
 from .permissions import (
     PERMISSIONS,
     PermissionStatus,
     permission_statuses,
     permissions_ready,
     request_permission,
+)
+
+logger = get_logger()
+
+SETUP_HINT = (
+    "設定状況は自動で確認します。"
+    "反映されない場合はアプリを起動し直してください。"
+)
+CHECK_FAILED_HINT = (
+    "権限の状態を確認できません。アプリを再起動しても直らない場合は、"
+    "アプリを再インストールしてください。"
 )
 
 
@@ -36,6 +48,7 @@ class PermissionSetupController(NSObject):
         if self is None:
             return None
         self.completed = False
+        self.request_error = None
         self.microphone_pending = False
         self.microphone_response = threading.Event()
         self.status_labels = {}
@@ -69,10 +82,9 @@ class PermissionSetupController(NSObject):
             self.buttons[key] = self.button(
                 "設定を開く", 468, y - 8, 148, "requestPermission:"
             )
-            self.buttons[key].setTag_(index)
 
         self.message = self.label(
-            "設定状況は自動で確認します。反映されない場合はアプリを起動し直してください。",
+            SETUP_HINT,
             24, 109, 592, 40, secondary=True,
         )
         self.label(
@@ -129,9 +141,18 @@ class PermissionSetupController(NSObject):
                 else "設定を開く"
             )
         self.done_button.setEnabled_(permissions_ready(statuses))
+        self.message.setStringValue_(
+            self.request_error
+            or (
+                CHECK_FAILED_HINT
+                if PermissionStatus.UNKNOWN in statuses.values()
+                else SETUP_HINT
+            )
+        )
 
     def requestPermission_(self, sender):
-        key = list(PERMISSIONS)[sender.tag()]
+        key = next(key for key, button in self.buttons.items() if button == sender)
+        self.request_error = None
         if key == "microphone":
             self.microphone_pending = (
                 permission_statuses()[key] is PermissionStatus.NOT_DETERMINED
@@ -141,7 +162,7 @@ class PermissionSetupController(NSObject):
         response = self.microphone_response
         if not request_permission(key, lambda granted: response.set()):
             self.microphone_pending = False
-            self.message.setStringValue_(
+            self.request_error = (
                 "設定を開けませんでした。システム設定の"
                 "「プライバシーとセキュリティ」から確認してください。"
             )
@@ -170,6 +191,11 @@ class PermissionSetupController(NSObject):
         try:
             app.activateIgnoringOtherApps_(True)
             self.window.makeKeyAndOrderFront_(None)
+            logger.info(
+                "Permission setup shown (visible=%s, statuses=%s)",
+                self.window.isVisible(),
+                {key: status.name for key, status in permission_statuses().items()},
+            )
             app.runModalForWindow_(self.window)
             return self.completed
         finally:
@@ -178,8 +204,9 @@ class PermissionSetupController(NSObject):
             self.window.setDelegate_(None)
 
 
-def show_permission_setup() -> bool:
+def show_permission_setup(*, startup: bool = False) -> bool:
     app = NSApplication.sharedApplication()
-    app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+    if startup:
+        app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
     controller = PermissionSetupController.alloc().init()
     return controller.run()

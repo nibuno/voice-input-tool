@@ -121,7 +121,7 @@ def test_setup_result_controls_startup(monkeypatch, completed):
         show_permission_setup=show
     ))
     assert permissions.ensure_permissions() is completed
-    show.assert_called_once_with()
+    show.assert_called_once_with(startup=True)
 
 
 def test_existing_permissions_skip_setup(monkeypatch):
@@ -160,5 +160,5 @@ def test_setup_command_needs_no_api_key_or_recording_app(monkeypatch):
         show_permission_setup=show
     ))
     app.main()
-    show.assert_called_once_with()
+    show.assert_called_once_with(startup=True)
     create.assert_not_called()

@@ -101,6 +101,8 @@ class VoiceInputApp(rumps.App):
 
         # Toggle mode state
         self._is_recording = False
+        # Owned by the main thread; workers report completion through the queue.
+        self._processing_count = 0
         self._recording_start_time: float | None = None
         self._last_timeout_log_second: int | None = None
         self._auto_stopped = False
@@ -184,13 +186,18 @@ class VoiceInputApp(rumps.App):
     def _on_permission_setup(self, _sender: rumps.MenuItem) -> None:
         from .permission_setup import show_permission_setup
 
-        if self._is_recording or self.title == "Processing...":
+        if (
+            self.recorder.is_recording
+            or self._processing_count > 0
+        ):
             self._notify_error(
                 "録音や文字起こしが終わってから権限設定を開いてください"
             )
             return
         self.hotkey_listener.stop()
         try:
+            # The modal loop pauses rumps timers, including the event queue.
+            # Only open while idle so it cannot strand recording/processing.
             show_permission_setup()
         finally:
             self.hotkey_listener.start()
@@ -508,6 +515,8 @@ class VoiceInputApp(rumps.App):
                     self._on_hotkey_release()
                 elif event == "cancel":
                     self._cancel_recording()
+                elif event == "processing_finished":
+                    self._processing_count -= 1
                 elif event == "reinitialize":
                     threading.Thread(
                         target=self._reinitialize_audio, daemon=True
@@ -861,14 +870,30 @@ class VoiceInputApp(rumps.App):
 
             # Process in background thread
             logger.debug("App: Starting audio processing thread")
-            threading.Thread(
-                target=self._process_audio,
-                args=(audio_data, realtime_transcriber),
-                daemon=True,
-            ).start()
-        except sd.PortAudioError as e:
+            self._processing_count += 1
+            try:
+                threading.Thread(
+                    target=self._process_audio_worker,
+                    args=(audio_data, realtime_transcriber),
+                    daemon=True,
+                ).start()
+            except RuntimeError:
+                self._processing_count -= 1
+                raise
+        except (RuntimeError, sd.PortAudioError) as e:
             logger.exception(f"App: Failed to stop recording: {e}")
             self._event_queue.put(f"error:{e}")
+
+    def _process_audio_worker(
+        self,
+        audio_data,
+        realtime_transcriber: RealtimeTranscriber | None = None,
+    ) -> None:
+        """Always release the setup guard, including early returns and errors."""
+        try:
+            self._process_audio(audio_data, realtime_transcriber)
+        finally:
+            self._event_queue.put("processing_finished")
 
     def _start_realtime_overlay(self) -> None:
         """Start best-effort live transcription for the current recording."""
@@ -1068,7 +1093,7 @@ def main() -> None:
     if args.setup:
         from .permission_setup import show_permission_setup
 
-        show_permission_setup()
+        show_permission_setup(startup=True)
         return
 
     if not ensure_permissions():

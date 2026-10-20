@@ -129,4 +129,4 @@ def ensure_permissions() -> bool:
         return True
     from .permission_setup import show_permission_setup
 
-    return show_permission_setup()
+    return show_permission_setup(startup=True)
