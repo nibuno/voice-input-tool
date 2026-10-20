@@ -10,6 +10,7 @@ import pytest
 
 from voice_input import app as app_module
 from voice_input.app import VoiceInputApp
+from voice_input.pet import DesktopPet
 
 
 @pytest.fixture
@@ -20,6 +21,8 @@ def app():
     instance._notify_error = Mock()
     instance._is_recording = False
     instance._processing_count = 0
+    instance._pet = DesktopPet()
+    instance._pet_show_pending = False
     instance._current_mode = "hold"
     instance._auto_stopped = False
     instance._debug = False
@@ -73,7 +76,7 @@ def test_stale_toggle_flag_does_not_block_setup(app, show_setup):
 
 
 @pytest.mark.parametrize("raises", [False, True])
-def test_idle_setup_suspends_and_restores_listener(app, show_setup, raises):
+def test_idle_setup_keeps_listener_running(app, show_setup, raises):
     calls = []
     app.hotkey_listener.stop.side_effect = lambda: calls.append("stop")
     app.hotkey_listener.start.side_effect = lambda: calls.append("start")
@@ -89,7 +92,7 @@ def test_idle_setup_suspends_and_restores_listener(app, show_setup, raises):
             app._on_permission_setup(None)
     else:
         app._on_permission_setup(None)
-    assert calls == ["stop", "show", "start"]
+    assert calls == ["show"]
     show_setup.assert_called_once_with()
 
 
