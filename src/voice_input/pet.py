@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .config import CONFIG_DIR
 from .logger import get_logger
+from .screen import target_screen
 
 logger = get_logger()
 
@@ -15,6 +16,7 @@ PET_IMAGE_EXTENSIONS = (".gif", ".png")
 PET_SIZE = 112.0
 PET_SCREEN_MARGIN = 24.0
 PET_EMOJI_FONT_SIZE = 72.0
+PET_FOLLOW_INTERVAL = 0.25
 
 
 class PetState(Enum):
@@ -103,6 +105,8 @@ class DesktopPet:
         self._panel = None
         self._image_view = None
         self._emoji_label = None
+        self._last_position_check = float("-inf")
+        self._position = None
 
     @property
     def state(self) -> PetState:
@@ -172,15 +176,17 @@ class DesktopPet:
         self._emoji_label = emoji_label
 
     def _position_panel(self) -> None:
-        from AppKit import NSMakePoint, NSScreen
+        from AppKit import NSMakePoint
 
-        screen = NSScreen.mainScreen()
+        screen = target_screen()
         if screen is None:
             return
         frame = screen.visibleFrame()
         x = frame.origin.x + frame.size.width - PET_SIZE - PET_SCREEN_MARGIN
         y = frame.origin.y + PET_SCREEN_MARGIN
-        self._panel.setFrameOrigin_(NSMakePoint(x, y))
+        if self._position != (x, y):
+            self._panel.setFrameOrigin_(NSMakePoint(x, y))
+            self._position = (x, y)
 
     def _render(self) -> None:
         if self._panel is None:
@@ -223,6 +229,9 @@ class DesktopPet:
 
     def tick(self, now: float) -> None:
         """Return to IDLE after a reaction has played; call from the main thread."""
+        if self._visible and now - self._last_position_check >= PET_FOLLOW_INTERVAL:
+            self._position_panel()
+            self._last_position_check = now
         settled = settled_state(self._state, self._entered_at, now)
         if settled != self._state:
             self.set_state(settled, now)

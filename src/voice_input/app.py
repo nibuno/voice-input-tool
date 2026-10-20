@@ -177,7 +177,7 @@ class VoiceInputApp(rumps.App):
         self._output_items: dict[str, rumps.MenuItem] = {}
         self._build_output_menu()
 
-        self.pet_item = rumps.MenuItem("Show Pet", callback=self._on_pet_toggled)
+        self.pet_item = rumps.MenuItem("Show Nekochan", callback=self._on_pet_toggled)
         self.pet_item.state = int(self._pet_enabled)
 
         self.menu = [
@@ -206,13 +206,7 @@ class VoiceInputApp(rumps.App):
                 "録音や文字起こしが終わってから権限設定を開いてください"
             )
             return
-        self.hotkey_listener.stop()
-        try:
-            # The modal loop pauses rumps timers, including the event queue.
-            # Only open while idle so it cannot strand recording/processing.
-            show_permission_setup()
-        finally:
-            self.hotkey_listener.start()
+        show_permission_setup()
 
     def _build_rms_menu(self) -> None:
         """Populate the RMS threshold submenu with preset values.

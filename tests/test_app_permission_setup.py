@@ -76,7 +76,7 @@ def test_stale_toggle_flag_does_not_block_setup(app, show_setup):
 
 
 @pytest.mark.parametrize("raises", [False, True])
-def test_idle_setup_suspends_and_restores_listener(app, show_setup, raises):
+def test_idle_setup_keeps_listener_running(app, show_setup, raises):
     calls = []
     app.hotkey_listener.stop.side_effect = lambda: calls.append("stop")
     app.hotkey_listener.start.side_effect = lambda: calls.append("start")
@@ -92,7 +92,7 @@ def test_idle_setup_suspends_and_restores_listener(app, show_setup, raises):
             app._on_permission_setup(None)
     else:
         app._on_permission_setup(None)
-    assert calls == ["stop", "show", "start"]
+    assert calls == ["show"]
     show_setup.assert_called_once_with()
 
 
