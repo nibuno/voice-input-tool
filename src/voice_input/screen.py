@@ -63,4 +63,3 @@ def target_screen():
         ):
             return candidate
     return NSScreen.mainScreen()
-
