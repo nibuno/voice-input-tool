@@ -4,9 +4,10 @@ These tests verify the toggle/hold mode behavior without depending on
 the full VoiceInputApp class, which requires complex rumps mocking.
 """
 
-from unittest.mock import Mock
+from unittest.mock import ANY, Mock
 
 from voice_input.app import VoiceInputApp
+from voice_input.pet import DesktopPet, PetState
 
 
 class RecordingModeController:
@@ -189,6 +190,7 @@ class TestEscapeCancellation:
         app._last_timeout_log_second = 1
         app._ignore_next_hotkey_release = False
         app._recording_session_id = 3
+        app._pet = Mock(spec=DesktopPet)
         app._realtime_transcriber = Mock()
         app._transcript_overlay = Mock()
         app._event_queue = Mock()
@@ -199,6 +201,7 @@ class TestEscapeCancellation:
         app.recorder.set_chunk_callback.assert_called_once_with(None)
         app.recorder.stop.assert_called_once()
         app._transcript_overlay.hide.assert_called_once()
+        app._pet.set_state.assert_called_once_with(PetState.IDLE, ANY)
         assert app._realtime_transcriber is None
         assert app._recording_session_id == 4
         assert app._is_recording is False
@@ -213,6 +216,7 @@ class TestEscapeCancellation:
         app._last_timeout_log_second = None
         app._ignore_next_hotkey_release = False
         app._recording_session_id = 1
+        app._pet = Mock(spec=DesktopPet)
         app._realtime_transcriber = None
         app._transcript_overlay = Mock()
         app._event_queue = Mock()
@@ -223,4 +227,5 @@ class TestEscapeCancellation:
         app._on_hotkey_release()
 
         app._stop_recording.assert_not_called()
+        app._pet.set_state.assert_called_once_with(PetState.IDLE, ANY)
         assert app._ignore_next_hotkey_release is False

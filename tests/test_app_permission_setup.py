@@ -10,6 +10,7 @@ import pytest
 
 from voice_input import app as app_module
 from voice_input.app import VoiceInputApp
+from voice_input.pet import DesktopPet
 
 
 @pytest.fixture
@@ -20,6 +21,8 @@ def app():
     instance._notify_error = Mock()
     instance._is_recording = False
     instance._processing_count = 0
+    instance._pet = DesktopPet()
+    instance._pet_show_pending = False
     instance._current_mode = "hold"
     instance._auto_stopped = False
     instance._debug = False
