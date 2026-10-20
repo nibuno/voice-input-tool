@@ -18,6 +18,7 @@ OPTIONS = {
     },
     "packages": [
         "rumps",
+        "AVFoundation",
         "pynput",
         "sounddevice",
         "scipy",

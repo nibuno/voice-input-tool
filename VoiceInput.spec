@@ -23,6 +23,7 @@ a = Analysis(
         "voice_input.config",
         "rumps",
         "ApplicationServices",
+        "AVFoundation",
         "HIServices",
         "pynput",
         "pynput.keyboard",
