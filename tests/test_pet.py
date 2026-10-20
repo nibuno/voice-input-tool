@@ -8,6 +8,7 @@ from voice_input.pet import (
     PetState,
     resolve_pet_image,
     settled_state,
+    state_after_status,
 )
 
 
@@ -62,6 +63,28 @@ def test_settled_state_keeps_reaction_until_duration() -> None:
 def test_settled_state_keeps_ongoing_states() -> None:
     assert settled_state(PetState.LISTENING, 0.0, 1000.0) == PetState.LISTENING
     assert settled_state(PetState.THINKING, 0.0, 1000.0) == PetState.THINKING
+
+
+def test_state_after_status_resets_stuck_progress_states() -> None:
+    assert state_after_status(PetState.LISTENING, is_recording=False) == PetState.IDLE
+    assert state_after_status(PetState.THINKING, is_recording=False) == PetState.IDLE
+
+
+def test_state_after_status_keeps_listening_while_recording() -> None:
+    assert state_after_status(PetState.LISTENING, is_recording=True) == (
+        PetState.LISTENING
+    )
+
+
+def test_state_after_status_lets_reactions_finish() -> None:
+    assert state_after_status(PetState.HAPPY, is_recording=False) == PetState.HAPPY
+    assert state_after_status(PetState.SAD, is_recording=False) == PetState.SAD
+
+
+def test_pet_event_values_round_trip() -> None:
+    # app.py sends reactions through the event queue as "pet:<value>".
+    for state in PetState:
+        assert PetState(state.value) is state
 
 
 def test_hidden_pet_tracks_state_and_settles(tmp_path: Path) -> None:

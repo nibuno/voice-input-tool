@@ -70,6 +70,19 @@ def settled_state(state: PetState, entered_at: float, now: float) -> PetState:
     return state
 
 
+def state_after_status(state: PetState, is_recording: bool) -> PetState:
+    """Return the state to show after a status update from the app.
+
+    Status updates arrive when recording or processing has finished without
+    pasting (too short, no speech, stall recovery, ...). If the recorder is no
+    longer running, an in-progress face would otherwise stay stuck forever.
+    Reactions (HAPPY/SAD) are left alone so they can finish playing.
+    """
+    if state in (PetState.LISTENING, PetState.THINKING) and not is_recording:
+        return PetState.IDLE
+    return state
+
+
 class DesktopPet:
     """A non-interactive panel near the bottom-right corner of the main screen.
 

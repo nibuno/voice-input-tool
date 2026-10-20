@@ -22,7 +22,7 @@ from .device_monitor import DeviceMonitor
 from .hotkey import HOTKEY_NAMES, HotkeyListener
 from .logger import get_logger
 from .output import output_text
-from .pet import DesktopPet, PetState
+from .pet import DesktopPet, PetState, state_after_status
 from .recorder import (
     SAMPLE_RATE,
     StreamingRecorder,
@@ -555,13 +555,19 @@ class VoiceInputApp(rumps.App):
                     self.title = "Voice Input"
                     self.status_item.title = "Status: Ready"
                     logger.info(f"App: '{device_name}' reconnected and ready")
-                elif event == "pet:happy":
-                    self._set_pet_state(PetState.HAPPY)
+                elif event.startswith("pet:"):
+                    # Background threads request reactions here so AppKit is
+                    # only touched on the main thread.
+                    self._set_pet_state(PetState(event[len("pet:"):]))
                 elif event.startswith("status:"):
                     status = event[7:]
-                    # Processing ended without output (too short, no speech, ...).
-                    if self._pet.state == PetState.THINKING:
-                        self._set_pet_state(PetState.IDLE)
+                    # Recording/processing ended without output (too short,
+                    # no speech, stall recovery, ...).
+                    next_pet_state = state_after_status(
+                        self._pet.state, self.recorder.is_recording
+                    )
+                    if next_pet_state != self._pet.state:
+                        self._set_pet_state(next_pet_state)
                     self.title = "Voice Input"
                     self.status_item.title = f"Status: {status}"
                 elif event.startswith("transcript:"):
@@ -636,6 +642,7 @@ class VoiceInputApp(rumps.App):
         self._notify_error(
             "マイクが応答しなくなったため録音を破棄しました。もう一度お試しください。"
         )
+        self._event_queue.put(f"pet:{PetState.SAD.value}")
         # Hand reinitialize off to the existing worker so its lock is honored.
         self._event_queue.put("reinitialize")
 
@@ -656,6 +663,7 @@ class VoiceInputApp(rumps.App):
             self.recorder.is_recording = False
         self._stop_realtime_overlay()
         self.recorder.cleanup()
+        self._set_pet_state(PetState.IDLE)
         self.title = "Voice Input"
         self.status_item.title = "Status: Sleeping..."
 
@@ -982,7 +990,7 @@ class VoiceInputApp(rumps.App):
                     len(realtime_text),
                 )
                 output_text(realtime_text, mode=self._output_mode)
-                self._event_queue.put("pet:happy")
+                self._event_queue.put(f"pet:{PetState.HAPPY.value}")
                 self._event_queue.put("status:Ready")
                 logger.info("App: Processing complete")
                 return
@@ -998,7 +1006,7 @@ class VoiceInputApp(rumps.App):
             if text and text.strip():
                 logger.debug(f"App: Outputting text (mode={self._output_mode})")
                 output_text(text, mode=self._output_mode)
-                self._event_queue.put("pet:happy")
+                self._event_queue.put(f"pet:{PetState.HAPPY.value}")
                 self._event_queue.put("status:Ready")
                 logger.info("App: Processing complete")
             else:
