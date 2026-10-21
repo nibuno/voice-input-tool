@@ -22,7 +22,12 @@ from .device_monitor import DeviceMonitor
 from .hotkey import HOTKEY_NAMES, HotkeyListener
 from .logger import get_logger
 from .output import output_text
-from .pet import DesktopPet, PetState, state_after_status
+from .pet import (
+    DesktopPet,
+    PetState,
+    normalize_pet_position,
+    state_after_status,
+)
 from .recorder import (
     SAMPLE_RATE,
     StreamingRecorder,
@@ -113,7 +118,9 @@ class VoiceInputApp(rumps.App):
         self._pet_enabled = self._config.get("pet_enabled") is True
         pet_images = self._config.get("pet_images")
         self._pet = DesktopPet(
-            overrides=pet_images if isinstance(pet_images, dict) else None
+            overrides=pet_images if isinstance(pet_images, dict) else None,
+            position=normalize_pet_position(self._config.get("pet_position")),
+            on_moved=self._on_pet_moved,
         )
         # AppKit windows can only be shown once the run loop has started.
         self._pet_show_pending = self._pet_enabled
@@ -177,6 +184,9 @@ class VoiceInputApp(rumps.App):
 
         self.pet_item = rumps.MenuItem("Show Pet", callback=self._on_pet_toggled)
         self.pet_item.state = int(self._pet_enabled)
+        self.pet_reset_item = rumps.MenuItem(
+            "Reset Pet Position", callback=self._on_pet_position_reset
+        )
 
         self.menu = [
             self.status_item,
@@ -188,6 +198,7 @@ class VoiceInputApp(rumps.App):
             self.recording_limit_menu,
             self.output_menu,
             self.pet_item,
+            self.pet_reset_item,
             rumps.MenuItem("Language: Japanese"),
         ]
         self._input_device_menu_populated = self._populate_input_device_menu()
@@ -340,6 +351,18 @@ class VoiceInputApp(rumps.App):
         self._config["pet_enabled"] = self._pet_enabled
         save_config(self._config)
         logger.info(f"App: Pet {'shown' if self._pet_enabled else 'hidden'}")
+
+    def _on_pet_position_reset(self, _sender: rumps.MenuItem) -> None:
+        """Move the pet back to the bottom-right corner."""
+        self._pet.reset_position()
+
+    def _on_pet_moved(self, position: tuple[float, float] | None) -> None:
+        """Persist where the user dragged the pet (None = default corner)."""
+        if position is None:
+            self._config.pop("pet_position", None)
+        else:
+            self._config["pet_position"] = [position[0], position[1]]
+        save_config(self._config)
 
     def _set_pet_state(self, state: PetState) -> None:
         """Update the pet; must be called on the main thread."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
 
@@ -62,6 +63,34 @@ def resolve_pet_image(
     return None
 
 
+def normalize_pet_position(value: object) -> tuple[float, float] | None:
+    """Return a saved ``[x, y]`` position, or None when it is malformed."""
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    if not all(
+        isinstance(v, (int, float)) and not isinstance(v, bool) for v in value
+    ):
+        return None
+    return float(value[0]), float(value[1])
+
+
+def is_position_on_screens(
+    position: tuple[float, float],
+    screen_frames: list[tuple[float, float, float, float]],
+    size: float = PET_SIZE,
+) -> bool:
+    """Whether the pet's center lies on one of the ``(x, y, w, h)`` screens.
+
+    A saved position can end up off-screen after a display is unplugged.
+    """
+    center_x = position[0] + size / 2
+    center_y = position[1] + size / 2
+    return any(
+        x <= center_x <= x + width and y <= center_y <= y + height
+        for x, y, width, height in screen_frames
+    )
+
+
 def settled_state(state: PetState, entered_at: float, now: float) -> PetState:
     """Return IDLE once a short-lived reaction has been shown long enough."""
     duration = PET_REACTION_SECONDS.get(state)
@@ -83,20 +112,46 @@ def state_after_status(state: PetState, is_recording: bool) -> PetState:
     return state
 
 
+_drag_view_class = None
+
+
+def _get_drag_view_class():
+    """Create (once) a transparent view that lets the user drag the panel."""
+    global _drag_view_class
+    if _drag_view_class is None:
+        from AppKit import NSView
+
+        class PetDragView(NSView):
+            def acceptsFirstMouse_(self, _event):
+                # Drag on the first click without activating this app.
+                return True
+
+            def mouseDown_(self, event):
+                self.window().performWindowDragWithEvent_(event)
+
+        _drag_view_class = PetDragView
+    return _drag_view_class
+
+
 class DesktopPet:
-    """A non-interactive panel near the bottom-right corner of the main screen.
+    """A draggable panel, by default near the bottom-right corner of the screen.
 
     The panel must never become the key window: pasting targets the
     frontmost app, so stealing focus would send text to the wrong place.
+    A borderless non-activating panel can be clicked and dragged without that.
     """
 
     def __init__(
         self,
         directory: Path = PET_DIR,
         overrides: dict[str, str] | None = None,
+        position: tuple[float, float] | None = None,
+        on_moved: Callable[[tuple[float, float] | None], None] | None = None,
     ) -> None:
         self._directory = directory
         self._overrides = overrides
+        self._position = position
+        self._on_moved = on_moved
         self._state = PetState.IDLE
         self._entered_at = 0.0
         self._visible = False
@@ -140,7 +195,7 @@ class DesktopPet:
         panel.setOpaque_(False)
         panel.setBackgroundColor_(NSColor.clearColor())
         panel.setHasShadow_(False)
-        panel.setIgnoresMouseEvents_(True)
+        panel.setIgnoresMouseEvents_(False)
         panel.setHidesOnDeactivate_(False)
         panel.setReleasedWhenClosed_(False)
         panel.setBecomesKeyOnlyIfNeeded_(True)
@@ -167,20 +222,74 @@ class DesktopPet:
         emoji_label.setFont_(NSFont.systemFontOfSize_(PET_EMOJI_FONT_SIZE))
         panel.contentView().addSubview_(emoji_label)
 
+        # Topmost, so it receives clicks instead of the image and label.
+        drag_view = _get_drag_view_class().alloc().initWithFrame_(
+            NSMakeRect(0.0, 0.0, PET_SIZE, PET_SIZE)
+        )
+        panel.contentView().addSubview_(drag_view)
+
         self._panel = panel
         self._image_view = image_view
         self._emoji_label = emoji_label
 
-    def _position_panel(self) -> None:
-        from AppKit import NSMakePoint, NSScreen
+    def _default_position(self) -> tuple[float, float] | None:
+        from AppKit import NSScreen
 
         screen = NSScreen.mainScreen()
         if screen is None:
-            return
+            return None
         frame = screen.visibleFrame()
         x = frame.origin.x + frame.size.width - PET_SIZE - PET_SCREEN_MARGIN
         y = frame.origin.y + PET_SCREEN_MARGIN
-        self._panel.setFrameOrigin_(NSMakePoint(x, y))
+        return x, y
+
+    def _position_panel(self) -> None:
+        from AppKit import NSMakePoint, NSScreen
+
+        position = self._position
+        if position is not None:
+            frames = [
+                (f.origin.x, f.origin.y, f.size.width, f.size.height)
+                for f in (screen.visibleFrame() for screen in NSScreen.screens())
+            ]
+            if not is_position_on_screens(position, frames):
+                logger.info("Pet: Saved position %s is off-screen; resetting", position)
+                position = None
+        if position is None:
+            position = self._default_position()
+            if position is None:
+                return
+        self._panel.setFrameOrigin_(NSMakePoint(*position))
+        self._position = self._current_origin()
+
+    def _current_origin(self) -> tuple[float, float]:
+        origin = self._panel.frame().origin
+        return float(origin.x), float(origin.y)
+
+    def _check_moved(self) -> None:
+        """Report the new position once a drag has finished."""
+        if self._panel is None or not self._visible:
+            return
+
+        from AppKit import NSEvent
+
+        if NSEvent.pressedMouseButtons() != 0:
+            return
+        origin = self._current_origin()
+        if origin == self._position:
+            return
+        self._position = origin
+        logger.info("Pet: Moved to %s", origin)
+        if self._on_moved is not None:
+            self._on_moved(origin)
+
+    def reset_position(self) -> None:
+        """Move back to the default corner and forget the saved position."""
+        self._position = None
+        if self._panel is not None:
+            self._position_panel()
+        if self._on_moved is not None:
+            self._on_moved(None)
 
     def _render(self) -> None:
         if self._panel is None:
@@ -222,7 +331,8 @@ class DesktopPet:
             self._render()
 
     def tick(self, now: float) -> None:
-        """Return to IDLE after a reaction has played; call from the main thread."""
+        """Settle reactions and save drags; call periodically on the main thread."""
         settled = settled_state(self._state, self._entered_at, now)
         if settled != self._state:
             self.set_state(settled, now)
+        self._check_moved()

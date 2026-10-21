@@ -5,7 +5,10 @@ from pathlib import Path
 from voice_input.pet import (
     PET_REACTION_SECONDS,
     DesktopPet,
+    PET_SIZE,
     PetState,
+    is_position_on_screens,
+    normalize_pet_position,
     resolve_pet_image,
     settled_state,
     state_after_status,
@@ -94,3 +97,34 @@ def test_hidden_pet_tracks_state_and_settles(tmp_path: Path) -> None:
     pet.tick(now=5.0 + PET_REACTION_SECONDS[PetState.SAD])
 
     assert pet.state == PetState.IDLE
+
+
+def test_normalize_pet_position_accepts_number_pair() -> None:
+    assert normalize_pet_position([100, 200.5]) == (100.0, 200.5)
+
+
+def test_normalize_pet_position_rejects_malformed_values() -> None:
+    assert normalize_pet_position(None) is None
+    assert normalize_pet_position([1]) is None
+    assert normalize_pet_position(["1", 2]) is None
+    assert normalize_pet_position([True, 2]) is None
+
+
+def test_is_position_on_screens_finds_secondary_display() -> None:
+    screens = [(0.0, 0.0, 1440.0, 900.0), (1440.0, 0.0, 1920.0, 1080.0)]
+
+    assert is_position_on_screens((2000.0, 500.0), screens)
+
+
+def test_is_position_on_screens_rejects_unplugged_display() -> None:
+    screens = [(0.0, 0.0, 1440.0, 900.0)]
+
+    assert not is_position_on_screens((2000.0, 500.0), screens)
+
+
+def test_is_position_on_screens_allows_partly_offscreen_edge() -> None:
+    screens = [(0.0, 0.0, 1440.0, 900.0)]
+    # Keep the saved spot while the center is still visible.
+    position = (1440.0 - PET_SIZE / 2, 0.0)
+
+    assert is_position_on_screens(position, screens)
