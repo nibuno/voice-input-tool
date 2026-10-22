@@ -184,10 +184,10 @@ class VoiceInputApp(rumps.App):
         self._output_items: dict[str, rumps.MenuItem] = {}
         self._build_output_menu()
 
-        self.pet_item = rumps.MenuItem("Show Pet", callback=self._on_pet_toggled)
+        self.pet_item = rumps.MenuItem("Show Nekochan", callback=self._on_pet_toggled)
         self.pet_item.state = int(self._pet_enabled)
         self.pet_reset_item = rumps.MenuItem(
-            "Reset Pet Position", callback=self._on_pet_position_reset
+            "Reset Nekochan Position", callback=self._on_pet_position_reset
         )
 
         self.menu = [
