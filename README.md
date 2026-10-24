@@ -169,6 +169,15 @@ alias voice="/path/to/voice-input-tool/.venv/bin/voice-input-app"
 
 画像はこのリポジトリには含まれていません。たとえば [しかまつさんのネコチャン絵文字](https://note.com/shikamatsu/n/nd217dc0617db) を使う場合は、配布ページからダウンロードし、[利用のおやくそく](https://note.com/shikamatsu/n/n8818bb5ebea1) を守って各自の環境でお使いください。
 
+#### ネコチャン絵文字のクレジット
+
+ネコチャン絵文字 ©しかまつ
+
+- 最新の配布場所: https://note.com/shikamatsu/n/nd217dc0617db
+- 利用のおやくそく: https://note.com/shikamatsu/n/n8818bb5ebea1
+
+ペット機能でネコチャン絵文字を使うことについては、作者のしかまつさんから許可をいただいています。
+
 ### CLIの使い方
 
 `voice-input` コマンドは指定した秒数だけ録音し、テキストに変換します。

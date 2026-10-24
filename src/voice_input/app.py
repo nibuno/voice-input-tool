@@ -202,6 +202,8 @@ class VoiceInputApp(rumps.App):
             self.output_menu,
             self.pet_item,
             self.pet_reset_item,
+            # Credit requested by the Nekochan emoji creator.
+            rumps.MenuItem("Nekochan ©しかまつ"),
             rumps.MenuItem("Language: Japanese"),
         ]
         self._input_device_menu_populated = self._populate_input_device_menu()
