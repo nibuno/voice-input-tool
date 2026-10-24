@@ -12,6 +12,7 @@ DEFAULT_CONFIG = {
     "input_device": None,
     "max_recording_seconds": 120.0,
     "output_mode": "copy_paste",
+    "pet_enabled": False,
 }
 
 VALID_HOTKEYS = ["ctrl_l", "ctrl_r", "alt_l", "alt_r"]
