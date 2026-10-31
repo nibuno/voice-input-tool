@@ -1,6 +1,8 @@
 # Voice Input Tool
 
-音声入力をテキストに変換するツール。OpenAI Whisper APIを使用して高精度な音声認識を実現します。
+音声入力をテキストに変換するツール。従来のOpenAI API版に加え、APIキー不要のローカルWhisper版を試せます。
+
+**ローカル版（Apple Silicon / macOS 15以降）:** [インストール・使い方・配布ビルド](docs/local-whisper.md)。初回にモデルを取得し、以後はMac内で文字起こしします。以下は従来のAPI版の説明です。
 
 ## 機能
 

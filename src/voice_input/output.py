@@ -19,7 +19,7 @@ def copy_to_clipboard(text: str) -> None:
         text: Text to copy.
     """
     pyperclip.copy(text)
-    logger.debug(f"Copied to clipboard: {text[:50]}...")
+    logger.debug("Copied text to clipboard (%d characters)", len(text))
 
 
 def paste() -> None:
@@ -34,8 +34,7 @@ def paste() -> None:
     See Issue #3 for details.
     """
     # Verify clipboard content before paste
-    clipboard_content = pyperclip.paste()
-    logger.debug(f"Clipboard before paste: {clipboard_content[:50]}...")
+    logger.debug("Preparing clipboard paste")
 
     time.sleep(0.1)  # Small delay before paste
     logger.debug("Sending Cmd+V via AppleScript")
