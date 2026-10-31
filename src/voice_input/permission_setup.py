@@ -31,6 +31,7 @@ from .permissions import (
 )
 
 logger = get_logger()
+APPLICATION_NAME = "Voice Input"
 
 SETUP_HINT = (
     "設定状況は自動で確認します。"
@@ -59,13 +60,13 @@ class PermissionSetupController(NSObject):
             NSBackingStoreBuffered,
             False,
         )
-        self.window.setTitle_("Voice Input — 権限設定")
+        self.window.setTitle_(f"{APPLICATION_NAME} — 権限設定")
         self.window.setReleasedWhenClosed_(False)
         self.window.setDelegate_(self)
 
         self.label("音声入力に必要な権限", 24, 445, 592, 30, size=20)
         target = (
-            "システム設定で Voice Input を許可してください。"
+            f"システム設定で {APPLICATION_NAME} を許可してください。"
             if getattr(sys, "frozen", False)
             else "直接実行では、起動元のターミナルや Python が"
             "許可対象になる場合があります。"
