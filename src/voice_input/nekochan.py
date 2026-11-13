@@ -1,7 +1,5 @@
 """Small always-on-top Nekochan that reacts to the app state."""
 
-from __future__ import annotations
-
 from enum import Enum
 from pathlib import Path
 
