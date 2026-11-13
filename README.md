@@ -146,7 +146,9 @@ alias voice="/path/to/voice-input-tool/.venv/bin/voice-input-app"
 メニューの「Show Nekochan」をオンにすると、画面右下にネコチャンが表示され、音声入力の状態に合わせて表情が変わります。
 複数の画面を使っている場合は、操作中のウィンドウがある画面の右下へ移動します。ウィンドウの位置を取得できない場合は、マウスポインターがある画面を使います。
 
-ネコチャン絵文字 ©️しかまつ。状態表示に使う5枚を同梱しています。画像の利用条件は、しかまつさんの[利用のおやくそく](https://note.com/shikamatsu/n/n8818bb5ebea1)をご覧ください。[ネコチャン絵文字の配布元](https://note.com/shikamatsu/n/nd217dc0617db)
+しかまつさんのご厚意で、ネコチャン絵文字を5枚同梱しています。
+
+ネコチャン絵文字 ©️しかまつ　[配布元](https://note.com/shikamatsu/n/nd217dc0617db) · [利用のおやくそく](https://note.com/shikamatsu/n/n8818bb5ebea1)
 
 | 状態 | ファイル名 | 画像がないときの表示 |
 |---|---|---|
