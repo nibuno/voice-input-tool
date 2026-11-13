@@ -156,13 +156,13 @@ alias voice="/path/to/voice-input-tool/.venv/bin/voice-input-app"
 | ペースト完了（数秒） | `happy` | 😸 |
 | エラー（数秒） | `sad` | 😿 |
 
-画像を差し替える場合は、`~/.voice-input/pet/` に `<ファイル名>.gif` または `<ファイル名>.png` として置きます（例: `~/.voice-input/pet/idle.png`）。GIF はアニメーション再生され、背景が透過の画像ならキャラだけが表示されます。
+画像を差し替える場合は、`~/.voice-input/nekochan/` に `<ファイル名>.gif` または `<ファイル名>.png` として置きます（例: `~/.voice-input/nekochan/idle.png`）。GIF はアニメーション再生され、背景が透過の画像ならキャラだけが表示されます。
 
 ファイル名を変えずに使いたい場合は、`~/.voice-input/config.json` で状態ごとに指定できます。
 
 ```json
 {
-  "pet_images": {
+  "nekochan_images": {
     "idle": "nekochan_smile.png",
     "listening": "nekochan_wave.gif"
   }

@@ -43,6 +43,14 @@ class TestLoadConfig:
         # Assert
         assert DEFAULT_CONFIG["hotkey"] == "ctrl_l"
 
+    def test_loads_legacy_nekochan_settings(self, config_dir: Path) -> None:
+        config_dir.mkdir()
+        settings = {"pet_enabled": True, "pet_images": {"idle": "custom.png"}}
+        (config_dir / "config.json").write_text(json.dumps(settings))
+        config = load_config()
+        assert config["nekochan_enabled"] is True
+        assert config["nekochan_images"] == {"idle": "custom.png"}
+
     def test_loads_valid_config_file(self, config_dir: Path) -> None:
         # Arrange
         config_dir.mkdir(parents=True)

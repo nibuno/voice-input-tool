@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from voice_input import screen
-from voice_input.pet import DesktopPet
+from voice_input.nekochan import Nekochan
 
 
 def display(x, y, width, height):
@@ -55,33 +55,33 @@ def test_window_screen_wins_over_mouse_screen(monkeypatch):
     assert screen.target_screen() is primary
 
 
-def test_pet_follows_while_visible_and_limits_polling(monkeypatch):
-    pet = DesktopPet()
+def test_nekochan_follows_while_visible_and_limits_polling(monkeypatch):
+    nekochan = Nekochan()
     position = Mock()
-    monkeypatch.setattr(pet, '_position_panel', position)
-    pet.tick(0)
+    monkeypatch.setattr(nekochan, '_position_panel', position)
+    nekochan.tick(0)
     position.assert_not_called()
-    pet._visible = True
-    pet.tick(0)
-    pet.tick(.1)
+    nekochan._visible = True
+    nekochan.tick(0)
+    nekochan.tick(.1)
     position.assert_called_once()
-    pet.tick(.3)
+    nekochan.tick(.3)
     assert position.call_count == 2
-    pet._visible = False
-    pet.tick(1)
+    nekochan._visible = False
+    nekochan.tick(1)
     assert position.call_count == 2
 
 
-def test_pet_moves_to_new_screen_without_moving_repeatedly(monkeypatch):
-    from voice_input import pet as module
+def test_nekochan_moves_to_new_screen_without_moving_repeatedly(monkeypatch):
+    from voice_input import nekochan as module
     from AppKit import NSMakePoint
-    pet = DesktopPet()
-    pet._panel = Mock()
+    nekochan = Nekochan()
+    nekochan._panel = Mock()
     current = [display(0, 0, 1440, 900)]
     monkeypatch.setattr(module, 'target_screen', lambda: current[0])
-    pet._position_panel()
-    pet._position_panel()
-    pet._panel.setFrameOrigin_.assert_called_once_with(NSMakePoint(1304, 24))
+    nekochan._position_panel()
+    nekochan._position_panel()
+    nekochan._panel.setFrameOrigin_.assert_called_once_with(NSMakePoint(1304, 24))
     current[0] = display(-1920, 0, 1920, 1080)
-    pet._position_panel()
-    pet._panel.setFrameOrigin_.assert_called_with(NSMakePoint(-136, 24))
+    nekochan._position_panel()
+    nekochan._panel.setFrameOrigin_.assert_called_with(NSMakePoint(-136, 24))

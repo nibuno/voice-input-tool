@@ -12,7 +12,7 @@ DEFAULT_CONFIG = {
     "input_device": None,
     "max_recording_seconds": 120.0,
     "output_mode": "copy_paste",
-    "pet_enabled": False,
+    "nekochan_enabled": False,
 }
 
 VALID_HOTKEYS = ["ctrl_l", "ctrl_r", "alt_l", "alt_r"]
@@ -41,6 +41,12 @@ def load_config() -> dict:
     try:
         with CONFIG_FILE.open() as f:
             config = json.load(f)
+            for old, new in (
+                ("pet_enabled", "nekochan_enabled"),
+                ("pet_images", "nekochan_images"),
+            ):
+                if old in config:
+                    config.setdefault(new, config.pop(old))
             # Validate hotkey value
             if config.get("hotkey") not in VALID_HOTKEYS:
                 config["hotkey"] = DEFAULT_CONFIG["hotkey"]

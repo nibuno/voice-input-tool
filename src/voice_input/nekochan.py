@@ -1,4 +1,4 @@
-"""Small always-on-top desktop pet that reacts to the app state."""
+"""Small always-on-top Nekochan that reacts to the app state."""
 
 from __future__ import annotations
 
@@ -11,16 +11,16 @@ from .screen import target_screen
 
 logger = get_logger()
 
-PET_DIR = CONFIG_DIR / "pet"
-BUNDLED_PET_DIR = Path(__file__).parent / "assets" / "nekochan"
-PET_IMAGE_EXTENSIONS = (".gif", ".png")
-PET_SIZE = 112.0
-PET_SCREEN_MARGIN = 24.0
-PET_EMOJI_FONT_SIZE = 72.0
-PET_FOLLOW_INTERVAL = 0.25
+NEKOCHAN_DIR = CONFIG_DIR / "nekochan"
+BUNDLED_NEKOCHAN_DIR = Path(__file__).parent / "assets" / "nekochan"
+NEKOCHAN_IMAGE_EXTENSIONS = (".gif", ".png")
+NEKOCHAN_SIZE = 112.0
+NEKOCHAN_SCREEN_MARGIN = 24.0
+NEKOCHAN_EMOJI_FONT_SIZE = 72.0
+NEKOCHAN_FOLLOW_INTERVAL = 0.25
 
 
-class PetState(Enum):
+class NekochanState(Enum):
     IDLE = "idle"
     LISTENING = "listening"
     THINKING = "thinking"
@@ -29,24 +29,24 @@ class PetState(Enum):
 
 
 # Shown when no image is configured for a state.
-PET_FALLBACK_EMOJI = {
-    PetState.IDLE: "🐱",
-    PetState.LISTENING: "👂",
-    PetState.THINKING: "💭",
-    PetState.HAPPY: "😸",
-    PetState.SAD: "😿",
+NEKOCHAN_FALLBACK_EMOJI = {
+    NekochanState.IDLE: "🐱",
+    NekochanState.LISTENING: "👂",
+    NekochanState.THINKING: "💭",
+    NekochanState.HAPPY: "😸",
+    NekochanState.SAD: "😿",
 }
 
 # Short-lived reactions fall back to IDLE after this many seconds.
-PET_REACTION_SECONDS = {
-    PetState.HAPPY: 2.5,
-    PetState.SAD: 4.0,
+NEKOCHAN_REACTION_SECONDS = {
+    NekochanState.HAPPY: 2.5,
+    NekochanState.SAD: 4.0,
 }
 
 
-def resolve_pet_image(
-    state: PetState,
-    directory: Path = PET_DIR,
+def resolve_nekochan_image(
+    state: NekochanState,
+    directory: Path = NEKOCHAN_DIR,
     overrides: dict[str, str] | None = None,
 ) -> Path | None:
     """Return the image for ``state``, or None to use the fallback emoji.
@@ -54,14 +54,17 @@ def resolve_pet_image(
     ``overrides`` maps a state name to a file name inside ``directory``.
     Without an override, local state images take priority over bundled ones.
     """
+    directories = [directory]
+    if directory == NEKOCHAN_DIR:
+        directories.append(CONFIG_DIR / "pet")  # Images from earlier versions.
     override = (overrides or {}).get(state.value)
     if isinstance(override, str) and override:
-        candidates = [directory / override]
+        candidates = [root / override for root in directories]
     else:
         candidates = [
             root / f"{state.value}{ext}"
-            for root in (directory, BUNDLED_PET_DIR)
-            for ext in PET_IMAGE_EXTENSIONS
+            for root in (*directories, BUNDLED_NEKOCHAN_DIR)
+            for ext in NEKOCHAN_IMAGE_EXTENSIONS
         ]
     for candidate in candidates:
         if candidate.is_file():
@@ -69,15 +72,15 @@ def resolve_pet_image(
     return None
 
 
-def settled_state(state: PetState, entered_at: float, now: float) -> PetState:
+def settled_state(state: NekochanState, entered_at: float, now: float) -> NekochanState:
     """Return IDLE once a short-lived reaction has been shown long enough."""
-    duration = PET_REACTION_SECONDS.get(state)
+    duration = NEKOCHAN_REACTION_SECONDS.get(state)
     if duration is not None and now - entered_at >= duration:
-        return PetState.IDLE
+        return NekochanState.IDLE
     return state
 
 
-def state_after_status(state: PetState, is_recording: bool) -> PetState:
+def state_after_status(state: NekochanState, is_recording: bool) -> NekochanState:
     """Return the state to show after a status update from the app.
 
     Status updates arrive when recording or processing has finished without
@@ -85,12 +88,12 @@ def state_after_status(state: PetState, is_recording: bool) -> PetState:
     longer running, an in-progress face would otherwise stay stuck forever.
     Reactions (HAPPY/SAD) are left alone so they can finish playing.
     """
-    if state in (PetState.LISTENING, PetState.THINKING) and not is_recording:
-        return PetState.IDLE
+    if state in (NekochanState.LISTENING, NekochanState.THINKING) and not is_recording:
+        return NekochanState.IDLE
     return state
 
 
-class DesktopPet:
+class Nekochan:
     """A non-interactive panel near the bottom-right corner of the main screen.
 
     The panel must never become the key window: pasting targets the
@@ -99,12 +102,12 @@ class DesktopPet:
 
     def __init__(
         self,
-        directory: Path = PET_DIR,
+        directory: Path = NEKOCHAN_DIR,
         overrides: dict[str, str] | None = None,
     ) -> None:
         self._directory = directory
         self._overrides = overrides
-        self._state = PetState.IDLE
+        self._state = NekochanState.IDLE
         self._entered_at = 0.0
         self._visible = False
         self._panel = None
@@ -114,7 +117,7 @@ class DesktopPet:
         self._position = None
 
     @property
-    def state(self) -> PetState:
+    def state(self) -> NekochanState:
         return self._state
 
     def _ensure_panel(self) -> None:
@@ -140,7 +143,7 @@ class DesktopPet:
         )
 
         panel = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
-            NSMakeRect(0.0, 0.0, PET_SIZE, PET_SIZE),
+            NSMakeRect(0.0, 0.0, NEKOCHAN_SIZE, NEKOCHAN_SIZE),
             NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel,
             NSBackingStoreBuffered,
             False,
@@ -160,20 +163,22 @@ class DesktopPet:
         )
 
         image_view = NSImageView.alloc().initWithFrame_(
-            NSMakeRect(0.0, 0.0, PET_SIZE, PET_SIZE)
+            NSMakeRect(0.0, 0.0, NEKOCHAN_SIZE, NEKOCHAN_SIZE)
         )
         image_view.setImageScaling_(NSImageScaleProportionallyUpOrDown)
         # Plays animated GIFs without manual frame handling.
         image_view.setAnimates_(True)
         panel.contentView().addSubview_(image_view)
 
-        emoji_height = PET_EMOJI_FONT_SIZE * 1.3
+        emoji_height = NEKOCHAN_EMOJI_FONT_SIZE * 1.3
         emoji_label = NSTextField.labelWithString_("")
         emoji_label.setFrame_(
-            NSMakeRect(0.0, (PET_SIZE - emoji_height) / 2, PET_SIZE, emoji_height)
+            NSMakeRect(
+                0.0, (NEKOCHAN_SIZE - emoji_height) / 2, NEKOCHAN_SIZE, emoji_height
+            )
         )
         emoji_label.setAlignment_(NSTextAlignmentCenter)
-        emoji_label.setFont_(NSFont.systemFontOfSize_(PET_EMOJI_FONT_SIZE))
+        emoji_label.setFont_(NSFont.systemFontOfSize_(NEKOCHAN_EMOJI_FONT_SIZE))
         panel.contentView().addSubview_(emoji_label)
 
         self._panel = panel
@@ -187,8 +192,8 @@ class DesktopPet:
         if screen is None:
             return
         frame = screen.visibleFrame()
-        x = frame.origin.x + frame.size.width - PET_SIZE - PET_SCREEN_MARGIN
-        y = frame.origin.y + PET_SCREEN_MARGIN
+        x = frame.origin.x + frame.size.width - NEKOCHAN_SIZE - NEKOCHAN_SCREEN_MARGIN
+        y = frame.origin.y + NEKOCHAN_SCREEN_MARGIN
         if self._position != (x, y):
             self._panel.setFrameOrigin_(NSMakePoint(x, y))
             self._position = (x, y)
@@ -200,15 +205,15 @@ class DesktopPet:
         from AppKit import NSImage
 
         image = None
-        path = resolve_pet_image(self._state, self._directory, self._overrides)
+        path = resolve_nekochan_image(self._state, self._directory, self._overrides)
         if path is not None:
             image = NSImage.alloc().initWithContentsOfFile_(str(path))
             if image is None:
-                logger.warning("Pet: Could not load image %s", path)
+                logger.warning("Nekochan: Could not load image %s", path)
         self._image_view.setImage_(image)
         self._image_view.setHidden_(image is None)
         self._emoji_label.setStringValue_(
-            "" if image is not None else PET_FALLBACK_EMOJI[self._state]
+            "" if image is not None else NEKOCHAN_FALLBACK_EMOJI[self._state]
         )
 
     def show(self) -> None:
@@ -217,14 +222,14 @@ class DesktopPet:
         self._render()
         self._panel.orderFrontRegardless()
         self._visible = True
-        logger.info("Pet shown (images from %s)", self._directory)
+        logger.info("Nekochan shown (images from %s)", self._directory)
 
     def hide(self) -> None:
         self._visible = False
         if self._panel is not None:
             self._panel.orderOut_(None)
 
-    def set_state(self, state: PetState, now: float) -> None:
+    def set_state(self, state: NekochanState, now: float) -> None:
         self._entered_at = now
         if state == self._state:
             return
@@ -234,7 +239,10 @@ class DesktopPet:
 
     def tick(self, now: float) -> None:
         """Return to IDLE after a reaction has played; call from the main thread."""
-        if self._visible and now - self._last_position_check >= PET_FOLLOW_INTERVAL:
+        if (
+            self._visible
+            and now - self._last_position_check >= NEKOCHAN_FOLLOW_INTERVAL
+        ):
             self._position_panel()
             self._last_position_check = now
         settled = settled_state(self._state, self._entered_at, now)
