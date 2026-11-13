@@ -120,7 +120,9 @@ class VoiceInputApp(rumps.App):
         self._nekochan_enabled = self._config.get("nekochan_enabled") is True
         nekochan_images = self._config.get("nekochan_images")
         self._nekochan = Nekochan(
-            overrides=nekochan_images if isinstance(nekochan_images, dict) else None
+            overrides=nekochan_images if isinstance(nekochan_images, dict) else None,
+            offset=self._config.get("nekochan_offset"),
+            on_moved=self._save_nekochan_offset,
         )
         # AppKit windows can only be shown once the run loop has started.
         self._nekochan_show_pending = self._nekochan_enabled
@@ -349,6 +351,10 @@ class VoiceInputApp(rumps.App):
         self._config["output_mode"] = mode_id
         save_config(self._config)
         logger.info(f"App: Output mode changed to {mode_id}")
+
+    def _save_nekochan_offset(self, offset: tuple[float, float]) -> None:
+        self._config["nekochan_offset"] = list(offset)
+        save_config(self._config)
 
     def _on_nekochan_toggled(self, sender: rumps.MenuItem) -> None:
         """Show or hide Nekochan."""

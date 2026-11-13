@@ -85,3 +85,23 @@ def test_nekochan_moves_to_new_screen_without_moving_repeatedly(monkeypatch):
     current[0] = display(-1920, 0, 1920, 1080)
     nekochan._position_panel()
     nekochan._panel.setFrameOrigin_.assert_called_with(NSMakePoint(-136, 24))
+
+
+def test_drag_offset_is_saved_and_clamped_on_smaller_screen(monkeypatch):
+    from AppKit import NSMakePoint
+    from voice_input import nekochan as module
+
+    saved = Mock()
+    cat = Nekochan(on_moved=saved)
+    cat._panel = Mock()
+    screen = display(-1440, 100, 1440, 900)
+    cat._panel.screen.return_value = screen
+    cat._panel.frame.return_value.origin = NSMakePoint(-412, 540)
+    monkeypatch.setattr(module, "target_screen", lambda: screen)
+    cat._save_drag_offset()
+    saved.assert_called_once_with((300, 440))
+    restored = Nekochan(offset=list(saved.call_args.args[0]))
+    restored._panel = Mock()
+    screen = display(0, 0, 400, 300)
+    restored._position_panel()
+    restored._panel.setFrameOrigin_.assert_called_with(NSMakePoint(0, 188))
