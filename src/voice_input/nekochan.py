@@ -1,7 +1,10 @@
 """Small always-on-top Nekochan that reacts to the app state."""
 
+from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
+
+from AppKit import NSEvent, NSView
 
 from .config import CONFIG_DIR
 from .logger import get_logger
@@ -91,8 +94,30 @@ def state_after_status(state: NekochanState, is_recording: bool) -> NekochanStat
     return state
 
 
+class NekochanDragView(NSView):
+    def acceptsFirstMouse_(self, event):
+        return True
+
+    def mouseDown_(self, event):
+        self.start_mouse = NSEvent.mouseLocation()
+        self.start_origin = self.window().frame().origin
+        self.nekochan._dragging = True
+
+    def mouseDragged_(self, event):
+        mouse = NSEvent.mouseLocation()
+        self.window().setFrameOrigin_((
+            self.start_origin.x + mouse.x - self.start_mouse.x,
+            self.start_origin.y + mouse.y - self.start_mouse.y,
+        ))
+
+    def mouseUp_(self, event):
+        self.nekochan._dragging = False
+        if self.window().frame().origin != self.start_origin:
+            self.nekochan._save_drag_offset()
+
+
 class Nekochan:
-    """A non-interactive panel near the bottom-right corner of the main screen.
+    """A draggable panel positioned relative to the active screen.
 
     The panel must never become the key window: pasting targets the
     frontmost app, so stealing focus would send text to the wrong place.
@@ -102,7 +127,16 @@ class Nekochan:
         self,
         directory: Path = NEKOCHAN_DIR,
         overrides: dict[str, str] | None = None,
+        offset=None,
+        on_moved: Callable[[tuple[float, float]], None] | None = None,
     ) -> None:
+        self._offset = (NEKOCHAN_SCREEN_MARGIN, NEKOCHAN_SCREEN_MARGIN)
+        if isinstance(offset, (tuple, list)) and len(offset) == 2 and all(
+            type(value) in (float, int) and 0 <= value <= 1e9 for value in offset
+        ):
+            self._offset = tuple(offset)
+        self._on_moved = on_moved
+        self._dragging = False
         self._directory = directory
         self._overrides = overrides
         self._state = NekochanState.IDLE
@@ -150,7 +184,7 @@ class Nekochan:
         panel.setOpaque_(False)
         panel.setBackgroundColor_(NSColor.clearColor())
         panel.setHasShadow_(False)
-        panel.setIgnoresMouseEvents_(True)
+        panel.setIgnoresMouseEvents_(False)
         panel.setHidesOnDeactivate_(False)
         panel.setReleasedWhenClosed_(False)
         panel.setBecomesKeyOnlyIfNeeded_(True)
@@ -179,6 +213,10 @@ class Nekochan:
         emoji_label.setFont_(NSFont.systemFontOfSize_(NEKOCHAN_EMOJI_FONT_SIZE))
         panel.contentView().addSubview_(emoji_label)
 
+        drag_view = NekochanDragView.alloc().initWithFrame_(panel.contentView().bounds())
+        drag_view.nekochan = self
+        panel.contentView().addSubview_(drag_view)
+
         self._panel = panel
         self._image_view = image_view
         self._emoji_label = emoji_label
@@ -190,11 +228,28 @@ class Nekochan:
         if screen is None:
             return
         frame = screen.visibleFrame()
-        x = frame.origin.x + frame.size.width - NEKOCHAN_SIZE - NEKOCHAN_SCREEN_MARGIN
-        y = frame.origin.y + NEKOCHAN_SCREEN_MARGIN
+        width = max(0, frame.size.width - NEKOCHAN_SIZE)
+        height = max(0, frame.size.height - NEKOCHAN_SIZE)
+        x = frame.origin.x + width - min(self._offset[0], width)
+        y = frame.origin.y + min(self._offset[1], height)
         if self._position != (x, y):
             self._panel.setFrameOrigin_(NSMakePoint(x, y))
             self._position = (x, y)
+
+    def _save_drag_offset(self) -> None:
+        screen = self._panel.screen()
+        if screen is None:
+            return
+        frame = screen.visibleFrame()
+        origin = self._panel.frame().origin
+        self._offset = (
+            max(0, frame.origin.x + frame.size.width - NEKOCHAN_SIZE - origin.x),
+            max(0, origin.y - frame.origin.y),
+        )
+        self._position = None
+        self._position_panel()
+        if self._on_moved:
+            self._on_moved(self._offset)
 
     def _render(self) -> None:
         if self._panel is None:
@@ -224,6 +279,7 @@ class Nekochan:
 
     def hide(self) -> None:
         self._visible = False
+        self._dragging = False
         if self._panel is not None:
             self._panel.orderOut_(None)
 
@@ -239,6 +295,7 @@ class Nekochan:
         """Return to IDLE after a reaction has played; call from the main thread."""
         if (
             self._visible
+            and not self._dragging
             and now - self._last_position_check >= NEKOCHAN_FOLLOW_INTERVAL
         ):
             self._position_panel()
