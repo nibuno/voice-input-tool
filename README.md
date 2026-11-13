@@ -54,6 +54,7 @@ OPENAI_API_KEY=sk-your-api-key-here
 許可状況は自動で再確認され、3つの権限がそろうと「完了」で起動を続けられます。
 初回設定で「あとで」またはウィンドウを閉じた場合は、録音せずに終了します。
 起動後もメニューバーの「権限設定...」から確認できます。
+設定画面を開いていてもメニューやホットキーは使えます。録音・文字起こし中は、処理が終わってから設定画面を開いてください。
 
 APIキーの設定前に、権限設定だけを開くこともできます:
 
@@ -140,6 +141,37 @@ alias voice="/path/to/voice-input-tool/.venv/bin/voice-input-app"
 - メニューの「Input Device」から入力デバイスを固定できます（System Default でOSのデフォルトに戻ります）
 - デバイスの抜き差し後は「Refresh Devices」で一覧を更新できます
 - Toggleモードでは長時間録音を防ぐため、デフォルトで120秒で自動停止します（`max_recording_seconds`またはメニューの`Recording Limit`で変更可能）
+- メニューの「Show Nekochan」で、画面右下にネコチャンを表示できます（後述）
+
+### ネコチャン
+
+メニューの「Show Nekochan」をオンにすると、画面右下にネコチャンが表示され、音声入力の状態に合わせて表情が変わります。
+複数の画面を使っている場合は、操作中のウィンドウがある画面の右下へ移動します。ウィンドウの位置を取得できない場合は、マウスポインターがある画面を使います。
+
+しかまつさんのご厚意で、ネコチャン絵文字を5枚同梱しています。
+
+ネコチャン絵文字 ©️しかまつ　[配布元](https://note.com/shikamatsu/n/nd217dc0617db) · [利用のおやくそく](https://note.com/shikamatsu/n/n8818bb5ebea1)
+
+| 状態 | ファイル名 | 画像がないときの表示 |
+|---|---|---|
+| 待機中 | `idle` | 🐱 |
+| 録音中 | `listening` | 👂 |
+| 文字起こし中 | `thinking` | 💭 |
+| ペースト完了（数秒） | `happy` | 😸 |
+| エラー（数秒） | `sad` | 😿 |
+
+画像を差し替える場合は、`~/.voice-input/nekochan/` に `<ファイル名>.gif` または `<ファイル名>.png` として置きます（例: `~/.voice-input/nekochan/idle.png`）。GIF はアニメーション再生され、背景が透過の画像ならキャラだけが表示されます。
+
+ファイル名を変えずに使いたい場合は、`~/.voice-input/config.json` で状態ごとに指定できます。
+
+```json
+{
+  "nekochan_images": {
+    "idle": "nekochan_smile.png",
+    "listening": "nekochan_wave.gif"
+  }
+}
+```
 
 ### CLIの使い方
 
