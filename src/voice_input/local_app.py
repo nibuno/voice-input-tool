@@ -11,6 +11,7 @@ from .config import save_config
 from .local_models import MODELS
 from .local_transcriber import LocalTranscriber
 from .logger import get_logger
+from .nekochan import NekochanState
 from .output import output_text
 from .recorder import SAMPLE_RATE
 
@@ -148,6 +149,7 @@ class LocalVoiceInputApp(VoiceInputApp):
             text = self.engine.transcribe(audio_data)
             if text:
                 output_text(text, mode=self._output_mode)
+                self._event_queue.put(f"nekochan:{NekochanState.HAPPY.value}")
                 self._event_queue.put("status:Ready")
             else:
                 self._event_queue.put("status:音声が検出されませんでした")

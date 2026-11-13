@@ -31,6 +31,7 @@ def test_offline_pipeline_outputs_local_result(app, monkeypatch):
     app._process_audio(np.full(16000, 1000, dtype=np.int16))
     app.engine.transcribe.assert_called_once()
     output.assert_called_once_with("ローカル入力", mode="copy_paste")
+    assert list(app._event_queue.queue) == ["nekochan:happy", "status:Ready"]
 
 
 def test_failed_inference_reports_error_without_output(app, monkeypatch):
@@ -87,4 +88,4 @@ def test_local_menu_can_be_constructed_without_api_key(monkeypatch):
     assert instance.title == "VoiceInput Local"
     assert "音声認識モデル：small…" in instance.menu
     assert "使い方・保存先…" in instance.menu
-    assert not any("Nekochan" in key for key in instance.menu)
+    assert "Show Nekochan" in instance.menu

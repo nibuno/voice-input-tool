@@ -9,6 +9,7 @@ root = Path(SPECPATH)
 datas = collect_data_files("mlx_whisper", includes=["assets/*"])
 datas += collect_data_files("mlx", includes=["lib/*.metallib"])
 datas += [(str(root / "build/local-notices"), "notices")]
+datas += [(str(root / "src/voice_input/assets/nekochan"), "voice_input/assets/nekochan")]
 binaries = collect_dynamic_libs("mlx")
 
 a = Analysis(
