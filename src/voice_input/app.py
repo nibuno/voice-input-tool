@@ -22,6 +22,7 @@ from .hotkey import HOTKEY_NAMES, HotkeyListener
 from .logger import get_logger
 from .output import output_text
 from .permissions import ensure_permissions
+from .nekochan import Nekochan, NekochanState, state_after_status
 from .recorder import (
     SAMPLE_RATE,
     StreamingRecorder,
@@ -111,6 +112,13 @@ class VoiceInputApp(rumps.App):
         self.recorder = StreamingRecorder()
         self._event_queue: queue.Queue[str] = queue.Queue()
         self._transcript_overlay = TranscriptOverlay()
+        self._nekochan_enabled = self._config.get("nekochan_enabled") is True
+        nekochan_images = self._config.get("nekochan_images")
+        self._nekochan = Nekochan(
+            overrides=nekochan_images if isinstance(nekochan_images, dict) else None
+        )
+        # AppKit windows can only be shown once the run loop has started.
+        self._nekochan_show_pending = self._nekochan_enabled
         self._realtime_transcriber: RealtimeTranscriber | None = None
         self._recording_session_id = 0
         self._reinit_lock = threading.Lock()
@@ -169,6 +177,9 @@ class VoiceInputApp(rumps.App):
         self._output_items: dict[str, rumps.MenuItem] = {}
         self._build_output_menu()
 
+        self.nekochan_item = rumps.MenuItem("Show Nekochan", callback=self._on_nekochan_toggled)
+        self.nekochan_item.state = int(self._nekochan_enabled)
+
         self.menu = [
             self.status_item,
             rumps.MenuItem("権限設定...", callback=self._on_permission_setup),
@@ -179,6 +190,7 @@ class VoiceInputApp(rumps.App):
             self.rms_menu,
             self.recording_limit_menu,
             self.output_menu,
+            self.nekochan_item,
             rumps.MenuItem("Language: Japanese"),
         ]
         self._input_device_menu_populated = self._populate_input_device_menu()
@@ -194,13 +206,7 @@ class VoiceInputApp(rumps.App):
                 "録音や文字起こしが終わってから権限設定を開いてください"
             )
             return
-        self.hotkey_listener.stop()
-        try:
-            # The modal loop pauses rumps timers, including the event queue.
-            # Only open while idle so it cannot strand recording/processing.
-            show_permission_setup()
-        finally:
-            self.hotkey_listener.start()
+        show_permission_setup()
 
     def _build_rms_menu(self) -> None:
         """Populate the RMS threshold submenu with preset values.
@@ -339,6 +345,22 @@ class VoiceInputApp(rumps.App):
         save_config(self._config)
         logger.info(f"App: Output mode changed to {mode_id}")
 
+    def _on_nekochan_toggled(self, sender: rumps.MenuItem) -> None:
+        """Show or hide Nekochan."""
+        self._nekochan_enabled = not self._nekochan_enabled
+        sender.state = int(self._nekochan_enabled)
+        if self._nekochan_enabled:
+            self._nekochan.show()
+        else:
+            self._nekochan.hide()
+        self._config["nekochan_enabled"] = self._nekochan_enabled
+        save_config(self._config)
+        logger.info(f"App: Nekochan {'shown' if self._nekochan_enabled else 'hidden'}")
+
+    def _set_nekochan_state(self, state: NekochanState) -> None:
+        """Update Nekochan on the main thread."""
+        self._nekochan.set_state(state, time.monotonic())
+
     def _on_hotkey_selected(self, sender: rumps.MenuItem) -> None:
         """Handle hotkey selection from menu."""
         key_id = sender.key_id
@@ -465,6 +487,11 @@ class VoiceInputApp(rumps.App):
     @rumps.timer(0.05)
     def _check_events(self, _sender: object) -> None:
         """Poll for hotkey events from the queue."""
+        if self._nekochan_show_pending:
+            self._nekochan_show_pending = False
+            self._nekochan.show()
+        self._nekochan.tick(time.monotonic())
+
         # Detect a silently-stalled audio callback (e.g., AUHAL thread hung
         # without any sleep/device-change notification). If we believe we're
         # recording but no sample has arrived for a while, trigger recovery
@@ -546,8 +573,19 @@ class VoiceInputApp(rumps.App):
                     self.title = "Voice Input"
                     self.status_item.title = "Status: Ready"
                     logger.info(f"App: '{device_name}' reconnected and ready")
+                elif event.startswith("nekochan:"):
+                    # Background threads request reactions here so AppKit is
+                    # only touched on the main thread.
+                    self._set_nekochan_state(NekochanState(event[len("nekochan:"):]))
                 elif event.startswith("status:"):
                     status = event[7:]
+                    # Recording/processing ended without output (too short,
+                    # no speech, stall recovery, ...).
+                    next_nekochan_state = state_after_status(
+                        self._nekochan.state, self.recorder.is_recording
+                    )
+                    if next_nekochan_state != self._nekochan.state:
+                        self._set_nekochan_state(next_nekochan_state)
                     self.title = "Voice Input"
                     self.status_item.title = f"Status: {status}"
                 elif event.startswith("transcript:"):
@@ -567,6 +605,7 @@ class VoiceInputApp(rumps.App):
                     message = event[6:]
                     self.title = "Voice Input"
                     self.status_item.title = "Status: Error"
+                    self._set_nekochan_state(NekochanState.SAD)
                     self._notify_error(message)
         except queue.Empty:
             # No events in queue; return to the timer loop.
@@ -621,6 +660,7 @@ class VoiceInputApp(rumps.App):
         self._notify_error(
             "マイクが応答しなくなったため録音を破棄しました。もう一度お試しください。"
         )
+        self._event_queue.put(f"nekochan:{NekochanState.SAD.value}")
         # Hand reinitialize off to the existing worker so its lock is honored.
         self._event_queue.put("reinitialize")
 
@@ -641,6 +681,7 @@ class VoiceInputApp(rumps.App):
             self.recorder.is_recording = False
         self._stop_realtime_overlay()
         self.recorder.cleanup()
+        self._set_nekochan_state(NekochanState.IDLE)
         self.title = "Voice Input"
         self.status_item.title = "Status: Sleeping..."
 
@@ -797,6 +838,7 @@ class VoiceInputApp(rumps.App):
         if transcriber is not None:
             transcriber.close()
         self._transcript_overlay.hide()
+        self._set_nekochan_state(NekochanState.IDLE)
 
         try:
             self.recorder.stop()
@@ -825,6 +867,7 @@ class VoiceInputApp(rumps.App):
             self.title = "Recording..."
             self.status_item.title = "Status: Recording..."
             self.recorder.start()
+            self._set_nekochan_state(NekochanState.LISTENING)
             self._start_realtime_overlay()
             if self._current_mode == "toggle":
                 self._recording_start_time = time.monotonic()
@@ -840,6 +883,7 @@ class VoiceInputApp(rumps.App):
             try:
                 self.recorder.reinitialize()
                 self.recorder.start()
+                self._set_nekochan_state(NekochanState.LISTENING)
                 self._start_realtime_overlay()
                 logger.info("App: Recording started after reinitialize")
                 return
@@ -867,6 +911,7 @@ class VoiceInputApp(rumps.App):
             audio_data = self.recorder.stop()
             self.title = "Processing..."
             self.status_item.title = "Status: Processing..."
+            self._set_nekochan_state(NekochanState.THINKING)
 
             # Process in background thread
             logger.debug("App: Starting audio processing thread")
@@ -979,6 +1024,7 @@ class VoiceInputApp(rumps.App):
                     len(realtime_text),
                 )
                 output_text(realtime_text, mode=self._output_mode)
+                self._event_queue.put(f"nekochan:{NekochanState.HAPPY.value}")
                 self._event_queue.put("status:Ready")
                 logger.info("App: Processing complete")
                 return
@@ -994,6 +1040,7 @@ class VoiceInputApp(rumps.App):
             if text and text.strip():
                 logger.debug(f"App: Outputting text (mode={self._output_mode})")
                 output_text(text, mode=self._output_mode)
+                self._event_queue.put(f"nekochan:{NekochanState.HAPPY.value}")
                 self._event_queue.put("status:Ready")
                 logger.info("App: Processing complete")
             else:
@@ -1016,6 +1063,7 @@ class VoiceInputApp(rumps.App):
             self._realtime_transcriber.close()
             self._realtime_transcriber = None
         self._transcript_overlay.hide()
+        self._nekochan.hide()
         if self._device_monitor is not None:
             self._device_monitor.stop()
         self.hotkey_listener.stop()

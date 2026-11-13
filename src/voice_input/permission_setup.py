@@ -19,7 +19,7 @@ from AppKit import (
     NSWindowStyleMaskClosable,
     NSWindowStyleMaskTitled,
 )
-from Foundation import NSObject, NSRunLoop, NSTimer
+from Foundation import NSObject, NSRunLoop, NSTimer, NSRunLoopCommonModes
 
 from .logger import get_logger
 from .permissions import (
@@ -31,6 +31,7 @@ from .permissions import (
 )
 
 logger = get_logger()
+_open_controller = None
 
 SETUP_HINT = (
     "設定状況は自動で確認します。"
@@ -48,6 +49,8 @@ class PermissionSetupController(NSObject):
         if self is None:
             return None
         self.completed = False
+        self.modal = False
+        self.timer = None
         self.request_error = None
         self.microphone_pending = False
         self.microphone_response = threading.Event()
@@ -172,17 +175,48 @@ class PermissionSetupController(NSObject):
         # Recheck instead of relying on a potentially stale enabled button.
         if permissions_ready(permission_statuses()):
             self.completed = True
-            NSApplication.sharedApplication().stopModal()
+            self.dismiss()
 
     def cancel_(self, _sender):
-        NSApplication.sharedApplication().stopModal()
+        self.dismiss()
 
     def windowShouldClose_(self, _sender):
         self.cancel_(None)
         return True
 
     @objc.python_method
+    def dismiss(self):
+        global _open_controller
+        if self.modal:
+            NSApplication.sharedApplication().stopModal()
+            return
+        if self.timer is not None:
+            self.timer.invalidate()
+            self.timer = None
+        self.window.orderOut_(None)
+        self.window.setDelegate_(None)
+        if _open_controller is self:
+            _open_controller = None
+
+    @objc.python_method
+    def show(self):
+        """Keep the application's normal event loop and menus available."""
+        if self.timer is None:
+            self.timer = (
+                NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(
+                    1.0, self, "refresh:", None, True
+                )
+            )
+            NSRunLoop.mainRunLoop().addTimer_forMode_(
+                self.timer, NSRunLoopCommonModes
+            )
+        self.refresh_(None)
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        self.window.makeKeyAndOrderFront_(None)
+
+    @objc.python_method
     def run(self) -> bool:
+        self.modal = True
         app = NSApplication.sharedApplication()
         timer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(
             1.0, self, "refresh:", None, True
@@ -205,8 +239,13 @@ class PermissionSetupController(NSObject):
 
 
 def show_permission_setup(*, startup: bool = False) -> bool:
+    global _open_controller
     app = NSApplication.sharedApplication()
     if startup:
         app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
-    controller = PermissionSetupController.alloc().init()
-    return controller.run()
+        controller = PermissionSetupController.alloc().init()
+        return controller.run()
+    if _open_controller is None:
+        _open_controller = PermissionSetupController.alloc().init()
+    _open_controller.show()
+    return False

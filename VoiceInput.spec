@@ -13,7 +13,7 @@ a = Analysis(
     ["src/voice_input/__main__.py"],
     pathex=[str(src_path)],
     binaries=[],
-    datas=[],
+    datas=[("src/voice_input/assets/nekochan", "voice_input/assets/nekochan")],
     hiddenimports=[
         "voice_input",
         "voice_input.transcriber",
