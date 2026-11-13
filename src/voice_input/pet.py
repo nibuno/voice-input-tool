@@ -12,6 +12,7 @@ from .screen import target_screen
 logger = get_logger()
 
 PET_DIR = CONFIG_DIR / "pet"
+BUNDLED_PET_DIR = Path(__file__).parent / "assets" / "nekochan"
 PET_IMAGE_EXTENSIONS = (".gif", ".png")
 PET_SIZE = 112.0
 PET_SCREEN_MARGIN = 24.0
@@ -51,13 +52,17 @@ def resolve_pet_image(
     """Return the image for ``state``, or None to use the fallback emoji.
 
     ``overrides`` maps a state name to a file name inside ``directory``.
-    Without an override, ``<state>.gif`` or ``<state>.png`` is used.
+    Without an override, local state images take priority over bundled ones.
     """
     override = (overrides or {}).get(state.value)
     if isinstance(override, str) and override:
         candidates = [directory / override]
     else:
-        candidates = [directory / f"{state.value}{ext}" for ext in PET_IMAGE_EXTENSIONS]
+        candidates = [
+            root / f"{state.value}{ext}"
+            for root in (directory, BUNDLED_PET_DIR)
+            for ext in PET_IMAGE_EXTENSIONS
+        ]
     for candidate in candidates:
         if candidate.is_file():
             return candidate

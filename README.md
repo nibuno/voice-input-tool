@@ -146,6 +146,8 @@ alias voice="/path/to/voice-input-tool/.venv/bin/voice-input-app"
 メニューの「Show Nekochan」をオンにすると、画面右下にペットが表示され、アプリの状態に合わせて見た目が変わります。
 複数の画面を使っている場合は、操作中のウィンドウがある画面の右下へ移動します。ウィンドウの位置を取得できない場合は、マウスポインターがある画面を使います。
 
+ネコチャン絵文字 ©️しかまつ。状態表示に使う5枚を同梱しています。画像の利用条件は、しかまつさんの[利用のおやくそく](https://note.com/shikamatsu/n/n8818bb5ebea1)をご覧ください。[ネコチャン絵文字の配布元](https://note.com/shikamatsu/n/nd217dc0617db)
+
 | 状態 | ファイル名 | 画像がないときの表示 |
 |---|---|---|
 | 待機中 | `idle` | 🐱 |
@@ -154,7 +156,7 @@ alias voice="/path/to/voice-input-tool/.venv/bin/voice-input-app"
 | ペースト完了（数秒） | `happy` | 😸 |
 | エラー（数秒） | `sad` | 😿 |
 
-画像は `~/.voice-input/pet/` に `<ファイル名>.gif` または `<ファイル名>.png` として置きます（例: `~/.voice-input/pet/idle.png`）。GIF はアニメーション再生され、背景が透過の画像ならキャラだけが表示されます。
+画像を差し替える場合は、`~/.voice-input/pet/` に `<ファイル名>.gif` または `<ファイル名>.png` として置きます（例: `~/.voice-input/pet/idle.png`）。GIF はアニメーション再生され、背景が透過の画像ならキャラだけが表示されます。
 
 ファイル名を変えずに使いたい場合は、`~/.voice-input/config.json` で状態ごとに指定できます。
 
@@ -166,8 +168,6 @@ alias voice="/path/to/voice-input-tool/.venv/bin/voice-input-app"
   }
 }
 ```
-
-画像はこのリポジトリには含まれていません。たとえば [しかまつさんのネコチャン絵文字](https://note.com/shikamatsu/n/nd217dc0617db) を使う場合は、配布ページからダウンロードし、[利用のおやくそく](https://note.com/shikamatsu/n/n8818bb5ebea1) を守って各自の環境でお使いください。
 
 ### CLIの使い方
 

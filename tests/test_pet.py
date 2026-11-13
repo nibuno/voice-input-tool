@@ -12,8 +12,12 @@ from voice_input.pet import (
 )
 
 
-def test_resolve_pet_image_returns_none_when_missing(tmp_path: Path) -> None:
-    assert resolve_pet_image(PetState.IDLE, tmp_path) is None
+def test_all_states_have_bundled_images(tmp_path: Path) -> None:
+    for state in PetState:
+        image = resolve_pet_image(state, tmp_path)
+        assert image is not None
+        assert image.stem == state.value
+        assert image.is_file()
 
 
 def test_resolve_pet_image_uses_state_name(tmp_path: Path) -> None:
