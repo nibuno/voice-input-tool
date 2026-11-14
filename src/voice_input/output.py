@@ -22,11 +22,8 @@ def copy_to_clipboard(text: str) -> None:
     logger.debug("Copied text to clipboard (%d characters)", len(text))
 
 
-def _post_key(keycode: int, *, command: bool = False) -> None:
+def _key_events(keycode: int, *, command: bool = False):
     import Quartz
-
-    if not Quartz.CGPreflightPostEventAccess():
-        raise PermissionError("Keyboard output requires Accessibility permission")
 
     flags = Quartz.kCGEventFlagMaskCommand if command else 0
     for down in (True, False):
@@ -34,6 +31,15 @@ def _post_key(keycode: int, *, command: bool = False) -> None:
         # Put Cmd on the V event itself: separate modifier events used to
         # produce a bare "v" with the hotkey listener running (issue #3).
         Quartz.CGEventSetFlags(event, flags)
+        yield event
+
+
+def _post_key(keycode: int, *, command: bool = False) -> None:
+    import Quartz
+
+    if not Quartz.CGPreflightPostEventAccess():
+        raise PermissionError("Keyboard output requires Accessibility permission")
+    for event in _key_events(keycode, command=command):
         Quartz.CGEventPost(Quartz.kCGSessionEventTap, event)
 
 

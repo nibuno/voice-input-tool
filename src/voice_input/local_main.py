@@ -34,6 +34,7 @@ def main():
         "--transcribe", type=Path, help="Transcribe a mono 16 kHz PCM WAV"
     )
     parser.add_argument("--language", default="ja", help="Language for --transcribe")
+    parser.add_argument("--self-test", action="store_true", help="Check the built app")
     args = parser.parse_args()
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         parser.error("VoiceInput Local requires an Apple Silicon Mac.")
@@ -42,6 +43,12 @@ def main():
     os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
     from .config import load_config, save_config
     from .local_transcriber import LocalTranscriber
+
+    if args.self_test:
+        from .local_self_test import check_bundle
+
+        check_bundle(ModelStore(args.model_dir) if args.model_dir else ModelStore())
+        return
 
     config = load_config()
     key = args.model or config.get("local_model", "small")

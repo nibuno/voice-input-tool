@@ -10,6 +10,7 @@ datas = collect_data_files("mlx_whisper", includes=["assets/*"])
 datas += collect_data_files("mlx", includes=["lib/*.metallib"])
 datas += [(str(root / "build/local-notices"), "notices")]
 datas += [(str(root / "src/voice_input/assets/nekochan"), "voice_input/assets/nekochan")]
+datas += [(str(root / "tests/fixtures/voice-input.wav"), "voice_input")]
 binaries = collect_dynamic_libs("mlx")
 
 a = Analysis(
