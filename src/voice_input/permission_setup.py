@@ -16,10 +16,11 @@ from AppKit import (
     NSModalPanelRunLoopMode,
     NSTextField,
     NSWindow,
+    NSWorkspace,
     NSWindowStyleMaskClosable,
     NSWindowStyleMaskTitled,
 )
-from Foundation import NSObject, NSRunLoop, NSTimer, NSRunLoopCommonModes
+from Foundation import NSBundle, NSObject, NSRunLoop, NSTimer, NSRunLoopCommonModes
 
 from .logger import get_logger
 from .permissions import (
@@ -69,12 +70,13 @@ class PermissionSetupController(NSObject):
 
         self.label("音声入力に必要な権限", 24, 445, 592, 30, size=20)
         target = (
-            f"システム設定で {APPLICATION_NAME} を許可してください。"
+            f"システム設定で {APPLICATION_NAME} を許可してください。\n"
+            "一覧にない場合は、下のボタンでFinderを開き、アプリを権限の一覧にドラッグしてください。"
             if getattr(sys, "frozen", False)
             else "直接実行では、起動元のターミナルや Python が"
             "許可対象になる場合があります。"
         )
-        self.label(target, 24, 405, 592, 36, secondary=True)
+        self.label(target, 24, 398, 592, 44, secondary=True)
 
         for index, (key, (name, description)) in enumerate(PERMISSIONS.items()):
             y = 345 - index * 76
@@ -95,6 +97,8 @@ class PermissionSetupController(NSObject):
             "初回の貼り付け時に「System Events」の操作を求められたら許可してください。",
             24, 65, 592, 36, secondary=True,
         )
+        if getattr(sys, "frozen", False):
+            self.button("Finderでアプリを表示", 24, 24, 185, "revealApp:")
         self.button("あとで", 380, 24, 104, "cancel:")
         self.done_button = self.button("完了", 496, 24, 120, "finish:")
         self.done_button.setKeyEquivalent_("\r")
@@ -153,6 +157,10 @@ class PermissionSetupController(NSObject):
                 else SETUP_HINT
             )
         )
+
+    def revealApp_(self, _sender):
+        url = NSBundle.mainBundle().bundleURL()
+        NSWorkspace.sharedWorkspace().activateFileViewerSelectingURLs_([url])
 
     def requestPermission_(self, sender):
         key = next(key for key, button in self.buttons.items() if button == sender)
