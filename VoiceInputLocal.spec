@@ -41,6 +41,5 @@ app = BUNDLE(
         "CFBundleVersion": "0.1.0", "CFBundleShortVersionString": "0.1.0",
         "LSMinimumSystemVersion": "15.0", "LSUIElement": True,
         "NSMicrophoneUsageDescription": "音声をMac内で文字に変換するためにマイクを使用します。",
-        "NSAppleEventsUsageDescription": "文字起こししたテキストを入力中のアプリに貼り付けます。",
     },
 )

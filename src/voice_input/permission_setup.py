@@ -100,10 +100,6 @@ class PermissionSetupController(NSObject):
             SETUP_HINT,
             24, 109, 592, 40, secondary=True,
         )
-        self.label(
-            "初回の貼り付け時に「System Events」の操作を求められたら許可してください。",
-            24, 65, 592, 36, secondary=True,
-        )
         self.button("あとで", 380, 24, 104, "cancel:")
         self.done_button = self.button("完了", 496, 24, 120, "finish:")
         self.done_button.setKeyEquivalent_("\r")
