@@ -58,8 +58,10 @@ class PermissionSetupController(NSObject):
         self.microphone_response = threading.Event()
         self.status_labels = {}
         self.buttons = {}
+        bundled = getattr(sys, "frozen", False)
+        extra_height = 70 if bundled else 0
         self.window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            NSMakeRect(0, 0, 640, 500),
+            NSMakeRect(0, 0, 640, 500 + extra_height),
             NSWindowStyleMaskTitled | NSWindowStyleMaskClosable,
             NSBackingStoreBuffered,
             False,
@@ -68,18 +70,17 @@ class PermissionSetupController(NSObject):
         self.window.setReleasedWhenClosed_(False)
         self.window.setDelegate_(self)
 
-        self.label("音声入力に必要な権限", 24, 445, 592, 30, size=20)
+        self.label("音声入力に必要な権限", 24, 445 + extra_height, 592, 30, size=20)
         target = (
-            f"システム設定で {APPLICATION_NAME} を許可してください。\n"
-            "一覧にない場合は、下のボタンでFinderを開き、アプリを権限の一覧にドラッグしてください。"
-            if getattr(sys, "frozen", False)
+            f"「設定を開く」を押し、システム設定の一覧で {APPLICATION_NAME} をオンにしてください。"
+            if bundled
             else "直接実行では、起動元のターミナルや Python が"
             "許可対象になる場合があります。"
         )
-        self.label(target, 24, 398, 592, 44, secondary=True)
+        self.label(target, 24, 398 + extra_height, 592, 44, secondary=True)
 
         for index, (key, (name, description)) in enumerate(PERMISSIONS.items()):
-            y = 345 - index * 76
+            y = 345 + extra_height - index * 76
             self.label(name, 24, y, 240, 24, size=15)
             self.status_labels[key] = self.label(
                 "", 270, y, 164, 24, secondary=True
@@ -89,6 +90,12 @@ class PermissionSetupController(NSObject):
                 "設定を開く", 468, y - 8, 148, "requestPermission:"
             )
 
+        if bundled:
+            self.label("権限の一覧にアプリが見つからない場合", 24, 183, 390, 24, size=15)
+            self.label("Finderで選択されたアプリを、権限の一覧にドラッグしてください。",
+                       24, 149, 394, 36, secondary=True)
+            self.button("追加するアプリをFinderで表示", 420, 161, 196, "revealApp:")
+
         self.message = self.label(
             SETUP_HINT,
             24, 109, 592, 40, secondary=True,
@@ -97,8 +104,6 @@ class PermissionSetupController(NSObject):
             "初回の貼り付け時に「System Events」の操作を求められたら許可してください。",
             24, 65, 592, 36, secondary=True,
         )
-        if getattr(sys, "frozen", False):
-            self.button("Finderでアプリを表示", 24, 24, 185, "revealApp:")
         self.button("あとで", 380, 24, 104, "cancel:")
         self.done_button = self.button("完了", 496, 24, 120, "finish:")
         self.done_button.setKeyEquivalent_("\r")
