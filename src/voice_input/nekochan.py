@@ -100,6 +100,7 @@ class NekochanDragView(NSView):
 
     def mouseDown_(self, event):
         self.start_mouse = NSEvent.mouseLocation()
+        self.start_screen = self.window().screen()
         self.start_origin = self.window().frame().origin
         self.nekochan._dragging = True
 
@@ -113,7 +114,7 @@ class NekochanDragView(NSView):
     def mouseUp_(self, event):
         self.nekochan._dragging = False
         if self.window().frame().origin != self.start_origin:
-            self.nekochan._save_drag_offset()
+            self.nekochan._save_drag_offset(self.start_screen)
 
 
 class Nekochan:
@@ -128,13 +129,15 @@ class Nekochan:
         directory: Path = NEKOCHAN_DIR,
         overrides: dict[str, str] | None = None,
         offset=None,
-        on_moved: Callable[[tuple[float, float]], None] | None = None,
+        on_moved: Callable[[tuple[float, float], int | None], None] | None = None,
+        display_id: int | None = None,
     ) -> None:
         self._offset = (NEKOCHAN_SCREEN_MARGIN, NEKOCHAN_SCREEN_MARGIN)
         if isinstance(offset, (tuple, list)) and len(offset) == 2 and all(
             type(value) in (float, int) and 0 <= value <= 1e9 for value in offset
         ):
             self._offset = tuple(offset)
+        self._display_id = display_id if type(display_id) is int else None
         self._on_moved = on_moved
         self._dragging = False
         self._directory = directory
@@ -222,9 +225,17 @@ class Nekochan:
         self._emoji_label = emoji_label
 
     def _position_panel(self) -> None:
-        from AppKit import NSMakePoint
+        from AppKit import NSMakePoint, NSScreen
 
-        screen = target_screen()
+        screen = None
+        if self._display_id is not None:
+            screen = next(
+                (s for s in NSScreen.screens()
+                 if s.deviceDescription()["NSScreenNumber"] == self._display_id),
+                None,
+            )
+        if screen is None:
+            screen = target_screen()
         if screen is None:
             return
         frame = screen.visibleFrame()
@@ -236,11 +247,13 @@ class Nekochan:
             self._panel.setFrameOrigin_(NSMakePoint(x, y))
             self._position = (x, y)
 
-    def _save_drag_offset(self) -> None:
+    def _save_drag_offset(self, start_screen) -> None:
         screen = self._panel.screen()
         if screen is None:
             return
         frame = screen.visibleFrame()
+        if start_screen != screen or self._display_id is not None:
+            self._display_id = int(screen.deviceDescription()["NSScreenNumber"])
         origin = self._panel.frame().origin
         self._offset = (
             max(0, frame.origin.x + frame.size.width - NEKOCHAN_SIZE - origin.x),
@@ -249,7 +262,7 @@ class Nekochan:
         self._position = None
         self._position_panel()
         if self._on_moved:
-            self._on_moved(self._offset)
+            self._on_moved(self._offset, self._display_id)
 
     def _render(self) -> None:
         if self._panel is None:

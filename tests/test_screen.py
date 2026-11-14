@@ -98,10 +98,44 @@ def test_drag_offset_is_saved_and_clamped_on_smaller_screen(monkeypatch):
     cat._panel.screen.return_value = screen
     cat._panel.frame.return_value.origin = NSMakePoint(-412, 540)
     monkeypatch.setattr(module, "target_screen", lambda: screen)
-    cat._save_drag_offset()
-    saved.assert_called_once_with((300, 440))
+    cat._save_drag_offset(screen)
+    saved.assert_called_once_with((300, 440), None)
     restored = Nekochan(offset=list(saved.call_args.args[0]))
     restored._panel = Mock()
     screen = display(0, 0, 400, 300)
     restored._position_panel()
     restored._panel.setFrameOrigin_.assert_called_with(NSMakePoint(0, 188))
+
+
+def test_cross_display_drag_survives_focus_restart_and_disconnect(monkeypatch):
+    import AppKit
+    from AppKit import NSMakePoint
+    from voice_input import nekochan as module
+
+    primary = display(0, 0, 1440, 900)
+    left = display(-1920, 0, 1920, 1080)
+    primary.deviceDescription = lambda: {"NSScreenNumber": 1}
+    left.deviceDescription = lambda: {"NSScreenNumber": 2}
+    screens = [primary, left]
+    monkeypatch.setattr(AppKit, "NSScreen", SimpleNamespace(screens=lambda: screens))
+    monkeypatch.setattr(module, "target_screen", lambda: primary)
+    saved = Mock()
+    cat = Nekochan(on_moved=saved)
+    cat._panel = Mock()
+    cat._panel.screen.return_value = left
+    cat._panel.frame.return_value.origin = NSMakePoint(-212, 150)
+    cat._save_drag_offset(primary)
+    saved.assert_called_once_with((100, 150), 2)
+    cat._panel.setFrameOrigin_.assert_called_once_with(NSMakePoint(-212, 150))
+
+    offset, display_id = saved.call_args.args
+    restored = Nekochan(offset=offset, display_id=display_id)
+    restored._panel = Mock()
+    restored._position_panel()
+    restored._panel.setFrameOrigin_.assert_called_with(NSMakePoint(-212, 150))
+    screens.remove(left)
+    restored._position_panel()
+    restored._panel.setFrameOrigin_.assert_called_with(NSMakePoint(1228, 150))
+    screens.append(left)
+    restored._position_panel()
+    restored._panel.setFrameOrigin_.assert_called_with(NSMakePoint(-212, 150))
