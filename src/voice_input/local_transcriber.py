@@ -28,6 +28,9 @@ class LocalTranscriber:
             import mlx_whisper
 
             pcm = np.asarray(audio)
+            # sounddevice returns (frames, channels), even for mono input.
+            if pcm.ndim == 2 and pcm.shape[1] == 1:
+                pcm = pcm[:, 0]
             if pcm.ndim != 1:
                 raise ValueError("音声は16 kHzのモノラルで指定してください。")
             if pcm.dtype == np.int16:

@@ -8,7 +8,8 @@ import pytest
 from voice_input.local_transcriber import LocalTranscriber
 
 
-def test_inference_uses_local_path_and_normalized_pcm(tmp_path, monkeypatch):
+@pytest.mark.parametrize("shape", [(2,), (2, 1)])
+def test_inference_uses_local_path_and_normalized_pcm(tmp_path, monkeypatch, shape):
     transcribe = Mock(return_value={"text": "  テストです。 "})
     monkeypatch.setitem(
         sys.modules, "mlx_whisper", SimpleNamespace(transcribe=transcribe)
@@ -17,7 +18,7 @@ def test_inference_uses_local_path_and_normalized_pcm(tmp_path, monkeypatch):
     store.path.return_value = tmp_path
     engine = LocalTranscriber(store=store)
     assert (
-        engine.transcribe(np.array([-32768, 16384], dtype=np.int16)) == "テストです。"
+        engine.transcribe(np.array([-32768, 16384], dtype=np.int16).reshape(shape)) == "テストです。"
     )
     args, kwargs = transcribe.call_args
     np.testing.assert_equal(args[0], [-1, 0.5])
