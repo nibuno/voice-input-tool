@@ -136,3 +136,21 @@ def test_paste_enter_skips_restore_for_non_text_clipboard(
     assert fake_clipboard["current"] == "new"
     # Still auto-submit: paste succeeded, that's what the user asked for.
     assert stub_paste_and_enter["enter"] == 1
+
+
+def test_native_shortcuts(monkeypatch):
+    quartz = pytest.importorskip("Quartz")
+    sent = []
+    monkeypatch.setattr(quartz, "CGPreflightPostEventAccess", lambda: True)
+    monkeypatch.setattr(quartz, "CGEventPost", lambda tap, event: sent.append((
+        quartz.CGEventGetType(event),
+        quartz.CGEventGetIntegerValueField(event, quartz.kCGKeyboardEventKeycode),
+        quartz.CGEventGetFlags(event),
+    )))
+    output.paste()
+    output.press_enter()
+    assert sent == [
+        (kind, key, flags)
+        for key, flags in [(0x09, quartz.kCGEventFlagMaskCommand), (0x24, 0)]
+        for kind in (quartz.kCGEventKeyDown, quartz.kCGEventKeyUp)
+    ]

@@ -4,17 +4,12 @@ macOS 用の音声入力ツール。OpenAI Whisper API を使用して音声を�
 
 ## 設計判断
 
-### ペースト処理に AppleScript を使用
+### 自動ペースト
 
-`output.py` では `pyautogui` ではなく `osascript`（AppleScript）を使用してペーストしている。
-
-**背景**: pynput（ホットキー検出）と pyautogui（キー送信）が両方 macOS の Quartz API を使用するため干渉が発生する。
-
-**問題**: pynput のキーボードリスナーが動作中に `pyautogui.hotkey("command", "v")` を実行すると、Cmd キーが無視されて「v」だけが入力される。
-
-**解決**: AppleScript は別プロセス（osascript）で実行されるため、pynput との干渉を回避できる。
-
-参照: Issue #3
+`output.py` はアクセシビリティ権限を使って Quartz のキーイベントを送信する。
+System Events を経由しないので、貼り付けのためのオートメーション権限は不要。
+ホットキー監視中に「v」だけが入力される問題（Issue #3）を避けるため、
+V のキーイベント自体に Command フラグを付ける。
 
 ### 録音停止時のタイムアウト
 

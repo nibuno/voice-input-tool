@@ -16,10 +16,11 @@ from AppKit import (
     NSModalPanelRunLoopMode,
     NSTextField,
     NSWindow,
+    NSWorkspace,
     NSWindowStyleMaskClosable,
     NSWindowStyleMaskTitled,
 )
-from Foundation import NSObject, NSRunLoop, NSTimer, NSRunLoopCommonModes
+from Foundation import NSBundle, NSObject, NSRunLoop, NSTimer, NSRunLoopCommonModes
 
 from .logger import get_logger
 from .permissions import (
@@ -31,6 +32,7 @@ from .permissions import (
 )
 
 logger = get_logger()
+APPLICATION_NAME = "Voice Input"
 _open_controller = None
 
 SETUP_HINT = (
@@ -56,27 +58,29 @@ class PermissionSetupController(NSObject):
         self.microphone_response = threading.Event()
         self.status_labels = {}
         self.buttons = {}
+        bundled = getattr(sys, "frozen", False)
+        extra_height = 70 if bundled else 0
         self.window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            NSMakeRect(0, 0, 640, 500),
+            NSMakeRect(0, 0, 640, 500 + extra_height),
             NSWindowStyleMaskTitled | NSWindowStyleMaskClosable,
             NSBackingStoreBuffered,
             False,
         )
-        self.window.setTitle_("Voice Input — 権限設定")
+        self.window.setTitle_(f"{APPLICATION_NAME} — 権限設定")
         self.window.setReleasedWhenClosed_(False)
         self.window.setDelegate_(self)
 
-        self.label("音声入力に必要な権限", 24, 445, 592, 30, size=20)
+        self.label("音声入力に必要な権限", 24, 445 + extra_height, 592, 30, size=20)
         target = (
-            "システム設定で Voice Input を許可してください。"
-            if getattr(sys, "frozen", False)
+            f"「設定を開く」を押し、システム設定の一覧で {APPLICATION_NAME} をオンにしてください。"
+            if bundled
             else "直接実行では、起動元のターミナルや Python が"
             "許可対象になる場合があります。"
         )
-        self.label(target, 24, 405, 592, 36, secondary=True)
+        self.label(target, 24, 398 + extra_height, 592, 44, secondary=True)
 
         for index, (key, (name, description)) in enumerate(PERMISSIONS.items()):
-            y = 345 - index * 76
+            y = 345 + extra_height - index * 76
             self.label(name, 24, y, 240, 24, size=15)
             self.status_labels[key] = self.label(
                 "", 270, y, 164, 24, secondary=True
@@ -86,13 +90,15 @@ class PermissionSetupController(NSObject):
                 "設定を開く", 468, y - 8, 148, "requestPermission:"
             )
 
+        if bundled:
+            self.label("権限の一覧にアプリが見つからない場合", 24, 183, 390, 24, size=15)
+            self.label("Finderで選択されたアプリを、権限の一覧にドラッグしてください。",
+                       24, 149, 394, 36, secondary=True)
+            self.button("追加するアプリをFinderで表示", 420, 161, 196, "revealApp:")
+
         self.message = self.label(
             SETUP_HINT,
             24, 109, 592, 40, secondary=True,
-        )
-        self.label(
-            "初回の貼り付け時に「System Events」の操作を求められたら許可してください。",
-            24, 65, 592, 36, secondary=True,
         )
         self.button("あとで", 380, 24, 104, "cancel:")
         self.done_button = self.button("完了", 496, 24, 120, "finish:")
@@ -152,6 +158,10 @@ class PermissionSetupController(NSObject):
                 else SETUP_HINT
             )
         )
+
+    def revealApp_(self, _sender):
+        url = NSBundle.mainBundle().bundleURL()
+        NSWorkspace.sharedWorkspace().activateFileViewerSelectingURLs_([url])
 
     def requestPermission_(self, sender):
         key = next(key for key, button in self.buttons.items() if button == sender)

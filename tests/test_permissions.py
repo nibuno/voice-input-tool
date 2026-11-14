@@ -95,8 +95,11 @@ def test_denied_microphone_opens_settings_instead_of_reprompting(av, monkeypatch
     av.AVCaptureDevice.requestAccessForMediaType_completionHandler_.assert_not_called()
 
 
-@pytest.mark.parametrize("key", ["accessibility", "input_monitoring"])
-def test_request_registers_app_before_opening_settings(monkeypatch, key):
+@pytest.mark.parametrize(("key", "expected"), [
+    ("accessibility", ["accessibility"]),
+    ("input_monitoring", ["request", "input_monitoring"]),
+])
+def test_open_permission_settings_from_setup(monkeypatch, key, expected):
     calls = []
     monkeypatch.setattr(
         permissions, "check_accessibility_permission",
@@ -110,7 +113,7 @@ def test_request_registers_app_before_opening_settings(monkeypatch, key):
         lambda pane: calls.append(pane) or True,
     )
     assert permissions.request_permission(key)
-    assert calls == ["request", key]
+    assert calls == expected
 
 
 @pytest.mark.parametrize("completed", [False, True])

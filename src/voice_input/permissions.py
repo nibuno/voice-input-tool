@@ -111,8 +111,6 @@ def request_permission(
                     AVMediaTypeAudio, microphone_response or (lambda granted: None)
                 )
                 return True
-        elif key == "accessibility":
-            check_accessibility_permission(prompt=True)
         elif key == "input_monitoring":
             from Quartz import CGRequestListenEventAccess
 

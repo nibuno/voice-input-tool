@@ -69,6 +69,11 @@ RECORDING_LIMIT_PRESETS = [30.0, 60.0, 120.0, 300.0]
 class VoiceInputApp(rumps.App):
     """Mac menu bar application for voice input using Whisper API."""
 
+    idle_title = "Voice Input"
+
+    def _before_check_events(self) -> None:
+        """Edition-specific housekeeping; keep the rumps timer method inherited."""
+
     def __init__(self, debug: bool = False) -> None:
         super().__init__(
             name="Voice Input",
@@ -115,7 +120,9 @@ class VoiceInputApp(rumps.App):
         self._nekochan_enabled = self._config.get("nekochan_enabled") is True
         nekochan_images = self._config.get("nekochan_images")
         self._nekochan = Nekochan(
-            overrides=nekochan_images if isinstance(nekochan_images, dict) else None
+            overrides=nekochan_images if isinstance(nekochan_images, dict) else None,
+            offset=self._config.get("nekochan_offset"),
+            on_moved=self._save_nekochan_offset,
         )
         # AppKit windows can only be shown once the run loop has started.
         self._nekochan_show_pending = self._nekochan_enabled
@@ -345,6 +352,10 @@ class VoiceInputApp(rumps.App):
         save_config(self._config)
         logger.info(f"App: Output mode changed to {mode_id}")
 
+    def _save_nekochan_offset(self, offset: tuple[float, float]) -> None:
+        self._config["nekochan_offset"] = list(offset)
+        save_config(self._config)
+
     def _on_nekochan_toggled(self, sender: rumps.MenuItem) -> None:
         """Show or hide Nekochan."""
         self._nekochan_enabled = not self._nekochan_enabled
@@ -487,6 +498,7 @@ class VoiceInputApp(rumps.App):
     @rumps.timer(0.05)
     def _check_events(self, _sender: object) -> None:
         """Poll for hotkey events from the queue."""
+        self._before_check_events()
         if self._nekochan_show_pending:
             self._nekochan_show_pending = False
             self._nekochan.show()
@@ -562,7 +574,7 @@ class VoiceInputApp(rumps.App):
                     ).start()
                 elif event.startswith("device_disconnected:"):
                     device_name = event[len("device_disconnected:"):]
-                    self.title = "Voice Input"
+                    self.title = self.idle_title
                     self.status_item.title = "Status: Ready (default mic)"
                     self._notify_error(
                         f"マイク「{device_name}」が切断されました。"
@@ -570,7 +582,7 @@ class VoiceInputApp(rumps.App):
                     )
                 elif event.startswith("device_reconnected:"):
                     device_name = event[len("device_reconnected:"):]
-                    self.title = "Voice Input"
+                    self.title = self.idle_title
                     self.status_item.title = "Status: Ready"
                     logger.info(f"App: '{device_name}' reconnected and ready")
                 elif event.startswith("nekochan:"):
@@ -586,7 +598,7 @@ class VoiceInputApp(rumps.App):
                     )
                     if next_nekochan_state != self._nekochan.state:
                         self._set_nekochan_state(next_nekochan_state)
-                    self.title = "Voice Input"
+                    self.title = self.idle_title
                     self.status_item.title = f"Status: {status}"
                 elif event.startswith("transcript:"):
                     _, session_id, text = event.split(":", 2)
@@ -603,7 +615,7 @@ class VoiceInputApp(rumps.App):
                         self._transcript_overlay.hide()
                 elif event.startswith("error:"):
                     message = event[6:]
-                    self.title = "Voice Input"
+                    self.title = self.idle_title
                     self.status_item.title = "Status: Error"
                     self._set_nekochan_state(NekochanState.SAD)
                     self._notify_error(message)
@@ -655,7 +667,7 @@ class VoiceInputApp(rumps.App):
             logger.warning(f"App: stop() during stall recovery raised: {e}")
         # Tell the user their recording was lost — the "Processing..." UI
         # they were about to see will not have any text to paste.
-        self.title = "Voice Input"
+        self.title = self.idle_title
         self.status_item.title = "Status: Ready (stall recovered)"
         self._notify_error(
             "マイクが応答しなくなったため録音を破棄しました。もう一度お試しください。"
@@ -682,7 +694,7 @@ class VoiceInputApp(rumps.App):
         self._stop_realtime_overlay()
         self.recorder.cleanup()
         self._set_nekochan_state(NekochanState.IDLE)
-        self.title = "Voice Input"
+        self.title = self.idle_title
         self.status_item.title = "Status: Sleeping..."
 
     def _on_system_wake(self) -> None:
@@ -847,7 +859,7 @@ class VoiceInputApp(rumps.App):
             self._event_queue.put(f"error:{exc}")
             return
 
-        self.title = "Voice Input"
+        self.title = self.idle_title
         self.status_item.title = "Status: Ready"
 
     def _start_recording(self) -> None:
