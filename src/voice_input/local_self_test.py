@@ -12,6 +12,21 @@ from .nekochan import BUNDLED_NEKOCHAN_DIR, NekochanState, resolve_nekochan_imag
 from .output import RETURN_KEY, V_KEY, _key_events
 
 
+def build_fixture() -> Path:
+    """Locate the test recording.
+
+    The spec file copies it next to this module in the app bundle; in a source
+    checkout it stays in ``tests/fixtures``.
+    """
+    bundled = Path(__file__).with_name("voice-input.wav")
+    if bundled.is_file():
+        return bundled
+    source = Path(__file__).resolve().parents[2] / "tests/fixtures/voice-input.wav"
+    if not source.is_file():
+        raise RuntimeError(f"Build fixture not found: {bundled} or {source}")
+    return source
+
+
 def check_bundle(store: ModelStore) -> None:
     for state in NekochanState:
         image = resolve_nekochan_image(state, BUNDLED_NEKOCHAN_DIR)
@@ -34,7 +49,7 @@ def check_bundle(store: ModelStore) -> None:
     if model is None:
         print("SKIP: offline speech recognition (no installed model)")
         return
-    rate, frames = wavfile.read(Path(__file__).with_name("voice-input.wav"))
+    rate, frames = wavfile.read(build_fixture())
     if rate != 16000 or frames.ndim != 1:
         raise ValueError("Expected mono 16 kHz build fixture")
     # PortAudio delivers mono audio as (frames, 1).
