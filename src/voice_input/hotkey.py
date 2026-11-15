@@ -4,6 +4,16 @@ from collections.abc import Callable
 
 from pynput import keyboard
 
+from .logger import get_logger
+
+try:
+    # Private API: fall back to the stock listener if a pynput update moves it.
+    from pynput._util.darwin import ListenerMixin, keycode_context
+except ImportError:  # pragma: no cover - depends on the installed pynput
+    ListenerMixin = keycode_context = None
+
+logger = get_logger()
+
 # Mapping from config string to pynput key
 HOTKEY_MAP = {
     "ctrl_l": keyboard.Key.ctrl_l,
@@ -19,6 +29,20 @@ HOTKEY_NAMES = {
     "alt_l": "Left Option",
     "alt_r": "Right Option",
 }
+
+
+class MacHotkeyListener(keyboard.Listener):
+    """Capture the keyboard layout on the main thread before starting the tap."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        with keycode_context() as context:
+            self._context = context
+
+    def _run(self):
+        # pynput's Darwin listener fetches the layout here, on its worker
+        # thread. macOS requires input source access on the main queue.
+        ListenerMixin._run(self)
 
 
 class HotkeyListener:
@@ -85,7 +109,14 @@ class HotkeyListener:
 
     def start(self) -> None:
         """Start listening for hotkey events."""
-        self._listener = keyboard.Listener(
+        listener_class = MacHotkeyListener
+        if keycode_context is None:
+            logger.warning(
+                "HotkeyListener: pynput internals unavailable; "
+                "the keyboard layout is read on the listener thread"
+            )
+            listener_class = keyboard.Listener
+        self._listener = listener_class(
             on_press=self._handle_press,
             on_release=self._handle_release,
         )
