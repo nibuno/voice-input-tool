@@ -1,6 +1,7 @@
 """Mac menu bar application for voice input."""
 
 import atexit
+import os
 import queue
 import threading
 import time
@@ -31,7 +32,7 @@ from .recorder import (
 )
 from .realtime_transcriber import RealtimeTranscriber
 from .restart import schedule_self_restart
-from .transcriber import transcribe
+from .transcriber import local_executable, transcribe, transcribe_local
 from .transcript_overlay import TranscriptOverlay
 
 logger = get_logger()
@@ -135,6 +136,19 @@ class VoiceInputApp(rumps.App):
         # Menu items
         self.status_item = rumps.MenuItem("Status: Ready")
 
+        self.recognition_menu = rumps.MenuItem("音声認識")
+        self._recognition_items = {}
+        saved = self._config.get("recognition_backend")
+        self._backend = saved if saved in ("local", "api") else (
+            "local" if local_executable().is_file() and not os.getenv("OPENAI_API_KEY") else "api"
+        )
+        for backend, label in (("local", "ローカル（このMac）"), ("api", "OpenAI API")):
+            item = rumps.MenuItem(label, callback=self._on_backend_selected)
+            item.backend = backend
+            item.state = int(backend == self._backend)
+            self._recognition_items[backend] = item
+            self.recognition_menu.add(item)
+
         # Hotkey submenu
         self.hotkey_menu = rumps.MenuItem("Hotkey")
         self._hotkey_items = {}
@@ -184,6 +198,7 @@ class VoiceInputApp(rumps.App):
             self.status_item,
             rumps.MenuItem("権限設定...", callback=self._on_permission_setup),
             None,  # Separator
+            self.recognition_menu,
             self.hotkey_menu,
             self.mode_menu,
             self.input_device_menu,
@@ -194,6 +209,29 @@ class VoiceInputApp(rumps.App):
             rumps.MenuItem("Language: Japanese"),
         ]
         self._input_device_menu_populated = self._populate_input_device_menu()
+
+    def _on_backend_selected(self, sender):
+        if self.recorder.is_recording or self._processing_count:
+            self._notify_error("録音や文字起こしが終わってから切り替えてください。")
+            return
+        backend = sender.backend
+        if backend == "local" and not local_executable().is_file():
+            rumps.alert("ローカル認識", "VoiceInputLocal.app をアプリケーションフォルダに入れてください。")
+            return
+        if backend == "api" and not os.getenv("OPENAI_API_KEY"):
+            response = rumps.Window(
+                title="OpenAI APIキー",
+                message="入力したキーはアプリを終了するまで使用します。",
+                secure=True, dimensions=(360, 24), ok="使用する", cancel="キャンセル",
+            ).run()
+            if not response.clicked or not response.text.strip():
+                return
+            os.environ["OPENAI_API_KEY"] = response.text.strip()
+        self._config["recognition_backend"] = backend
+        save_config(self._config)
+        self._backend = backend
+        for key, item in self._recognition_items.items():
+            item.state = int(key == backend)
 
     def _on_permission_setup(self, _sender: rumps.MenuItem) -> None:
         from .permission_setup import show_permission_setup
@@ -852,6 +890,10 @@ class VoiceInputApp(rumps.App):
 
     def _start_recording(self) -> None:
         """Start recording audio."""
+        if self._backend == "api" and not os.getenv("OPENAI_API_KEY"):
+            self._is_recording = False
+            self._notify_error("「音声認識」から「OpenAI API」を選び、APIキーを入力してください。")
+            return
         logger.info("App: Start recording triggered")
 
         if not self.recorder.is_initialized:
@@ -942,6 +984,9 @@ class VoiceInputApp(rumps.App):
 
     def _start_realtime_overlay(self) -> None:
         """Start best-effort live transcription for the current recording."""
+        if self._backend == "local":
+            self.recorder.set_chunk_callback(None)
+            return
         self._recording_session_id += 1
         session_id = self._recording_session_id
         try:
@@ -1014,28 +1059,15 @@ class VoiceInputApp(rumps.App):
 
         audio_path = None
         try:
-            realtime_text = None
-            if realtime_transcriber is not None:
-                realtime_text = realtime_transcriber.wait_for_final_transcript()
-
-            if realtime_text:
-                logger.info(
-                    "App: Using Realtime final transcript (%d chars)",
-                    len(realtime_text),
-                )
-                output_text(realtime_text, mode=self._output_mode)
-                self._event_queue.put(f"nekochan:{NekochanState.HAPPY.value}")
-                self._event_queue.put("status:Ready")
-                logger.info("App: Processing complete")
-                return
-
-            logger.info("App: Realtime transcript unavailable; using Whisper fallback")
-            logger.debug("App: Saving audio to file")
-            audio_path = save_audio(audio_data)
-
-            logger.info("App: Starting transcription")
-            text = transcribe(audio_path)
-            logger.info(f"App: Transcription complete ({len(text)} chars)")
+            if self._backend == "local":
+                audio_path = save_audio(audio_data)
+                text = transcribe_local(audio_path)
+            else:
+                text = realtime_transcriber.wait_for_final_transcript() if realtime_transcriber else None
+                if not text:
+                    logger.info("App: Realtime transcript unavailable; using Whisper fallback")
+                    audio_path = save_audio(audio_data)
+                    text = transcribe(audio_path)
 
             if text and text.strip():
                 logger.debug(f"App: Outputting text (mode={self._output_mode})")
@@ -1119,7 +1151,6 @@ def main() -> None:
     """Entry point for menu bar app."""
     import argparse
     import logging
-    import os
 
     from dotenv import load_dotenv
 
@@ -1145,11 +1176,6 @@ def main() -> None:
         return
 
     if not ensure_permissions():
-        return
-
-    if not os.environ.get("OPENAI_API_KEY"):
-        print("Error: OPENAI_API_KEY environment variable is not set")
-        print("Please create a .env file with your API key")
         return
 
     app = VoiceInputApp(debug=args.debug)

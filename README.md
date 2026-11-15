@@ -1,6 +1,8 @@
 # Voice Input Tool
 
-音声入力をテキストに変換するツール。OpenAI Whisper APIを使用して高精度な音声認識を実現します。
+メニューバーの「音声認識」で「ローカル（このMac）」と「OpenAI API」を切り替えられます。選択は次回の起動にも引き継がれます。
+
+ローカル認識には、モデルを設定済みの `/Applications/VoiceInputLocal.app` を使います。普段は `VoiceInput.app` だけを起動してください。ローカルでは録音終了後にMac内で文字起こしします。APIを選ぶと録音中から音声をOpenAIへ送信します。APIキーはメニューで入力するか、環境変数に設定できます。
 
 ## 機能
 
@@ -13,7 +15,7 @@
 
 - Python 3.13以上
 - macOS（アクセシビリティ権限が必要）
-- OpenAI APIキー
+- API認識とCLIを使う場合はOpenAI APIキー
 
 ## インストール
 

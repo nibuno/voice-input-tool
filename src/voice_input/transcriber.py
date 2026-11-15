@@ -1,6 +1,7 @@
 """Whisper API transcription module."""
 
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -63,3 +64,25 @@ def transcribe(audio_path: Path, language: str = "ja") -> str:
         elapsed = time.time() - start_time
         logger.exception(f"Transcriber: API call failed after {elapsed:.2f}s: {e}")
         raise
+
+
+def local_executable() -> Path:
+    return Path("/Applications/VoiceInputLocal.app/Contents/MacOS/VoiceInputLocal")
+
+
+def transcribe_local(audio_path: Path) -> str:
+    """Use the local edition's CLI and its already configured offline model."""
+    if not local_executable().is_file():
+        raise ValueError("VoiceInputLocal.app をアプリケーションフォルダに入れてください。")
+    env = os.environ.copy()
+    env.pop("OPENAI_API_KEY", None)
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    result = subprocess.run(
+        [str(local_executable()), "--transcribe", str(audio_path)],
+        capture_output=True, text=True, encoding="utf-8", env=env,
+    )
+    if result.returncode:
+        raise ValueError(
+            "ローカル認識に失敗しました。VoiceInputLocal のモデル設定を確認してください。"
+        )
+    return result.stdout.strip()

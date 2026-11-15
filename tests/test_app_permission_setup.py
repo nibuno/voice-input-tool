@@ -25,6 +25,7 @@ def app():
     instance._nekochan_show_pending = False
     instance._current_mode = "hold"
     instance._auto_stopped = False
+    instance._backend = "api"
     instance._debug = False
     instance._rms_threshold = 100
     instance._event_queue = queue.Queue()
@@ -165,3 +166,54 @@ def test_worker_start_failure_does_not_leave_setup_blocked(app, monkeypatch):
 
     assert app._processing_count == 0
     assert app._event_queue.get_nowait().startswith("error:")
+
+
+@pytest.mark.parametrize("local_failure", [False, True])
+def test_local_backend_never_submits_audio_to_api(app, monkeypatch, tmp_path, local_failure):
+    app._backend = "local"
+    app._output_mode = "copy_paste"
+    app._transcript_overlay = Mock()
+    app._start_realtime_overlay()
+    app.recorder.set_chunk_callback.assert_called_once_with(None)
+    app._transcript_overlay.show.assert_not_called()
+
+    wav = tmp_path / "recording.wav"
+    wav.touch()
+    monkeypatch.setattr(app_module, "save_audio", lambda _: wav)
+    local = Mock(return_value="ローカル", side_effect=ValueError("model") if local_failure else None)
+    api = Mock()
+    output = Mock()
+    monkeypatch.setattr(app_module, "transcribe_local", local)
+    monkeypatch.setattr(app_module, "transcribe", api)
+    monkeypatch.setattr(app_module, "output_text", output)
+    realtime = Mock()
+    app._process_audio(np.full(16000, 1000, dtype=np.int16), realtime)
+    local.assert_called_once_with(wav)
+    api.assert_not_called()
+    realtime.wait_for_final_transcript.assert_not_called()
+    assert not wav.exists()
+    if local_failure:
+        output.assert_not_called()
+    else:
+        output.assert_called_once_with("ローカル", mode="copy_paste")
+
+
+def test_switch_persists_only_after_recording_and_processing(app, monkeypatch):
+    app._config = {}
+    app._recognition_items = {"api": Mock(), "local": Mock()}
+    save = Mock()
+    monkeypatch.setattr(app_module, "save_config", save)
+    monkeypatch.setattr(app_module, "local_executable", Mock(return_value=Mock(is_file=lambda: True)))
+    sender = SimpleNamespace(backend="local")
+    app.recorder.is_recording = True
+    app._on_backend_selected(sender)
+    app.recorder.is_recording = False
+    app._processing_count = 1
+    app._on_backend_selected(sender)
+    save.assert_not_called()
+    app._processing_count = 0
+    app._on_backend_selected(sender)
+    save.assert_called_once_with({"recognition_backend": "local"})
+    assert app._backend == "local"
+    assert app._recognition_items["local"].state == 1
+    assert app._recognition_items["api"].state == 0
