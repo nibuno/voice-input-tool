@@ -20,6 +20,8 @@ logger = get_logger()
 
 class LocalVoiceInputApp(VoiceInputApp):
     idle_title = "VoiceInput Local"
+    # No API client and no backend switch: this edition only runs on-device.
+    recognition_backends = ("local",)
 
     def __init__(self, engine: LocalTranscriber, debug=False):
         self.engine = engine

@@ -89,3 +89,7 @@ def test_local_menu_can_be_constructed_without_api_key(monkeypatch):
     assert "音声認識モデル：small…" in instance.menu
     assert "使い方・保存先…" in instance.menu
     assert "Show Nekochan" in instance.menu
+    # This edition has no API client, so it must not offer that backend.
+    assert instance.recognition_menu is None
+    assert "音声認識" not in instance.menu
+    assert instance._backend == "local"

@@ -1,6 +1,7 @@
 """Whisper API transcription module."""
 
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -63,3 +64,96 @@ def transcribe(audio_path: Path, language: str = "ja") -> str:
         elapsed = time.time() - start_time
         logger.exception(f"Transcriber: API call failed after {elapsed:.2f}s: {e}")
         raise
+
+
+LOCAL_SETUP_HINT = "VoiceInputLocal.app をアプリケーションフォルダに入れてください。"
+LOCAL_MODEL_HINT = "VoiceInputLocal を起動して、音声認識モデルの設定を終えてください。"
+# The CLI starts a new process and loads the model every time, so allow for a
+# slow first run on a cold file cache.
+LOCAL_TRANSCRIBE_TIMEOUT = 120.0
+LOCAL_PROBE_TIMEOUT = 20.0
+
+# PyInstaller's bootloader exports these for its own use and saves whatever the
+# dynamic loader was told before launch in ``*_ORIG``.
+DYLD_VARIABLES = ("DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH", "DYLD_INSERT_LIBRARIES")
+
+
+def local_executable() -> Path:
+    return Path("/Applications/VoiceInputLocal.app/Contents/MacOS/VoiceInputLocal")
+
+
+def _local_environment() -> dict[str, str]:
+    """Build the environment for the local edition's own bundle.
+
+    This app may itself be running from a PyInstaller bundle, whose bootloader
+    points the dynamic loader at *its* frameworks. A child process inherits
+    that and would load the wrong libraries, so restore the pre-launch values
+    and drop PyInstaller's private variables.
+    """
+    env = os.environ.copy()
+    env.pop("OPENAI_API_KEY", None)
+    for name in DYLD_VARIABLES:
+        original = env.pop(f"{name}_ORIG", None)
+        if original:
+            env[name] = original
+        else:
+            env.pop(name, None)
+    for name in [name for name in env if name.startswith(("_PYI_", "_MEIPASS"))]:
+        del env[name]
+    return env
+
+
+def _run_local(*arguments: str, timeout: float) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [str(local_executable()), *arguments],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=_local_environment(),
+        timeout=timeout,
+    )
+
+
+def local_model_ready() -> bool:
+    """Return True when the local edition has a model installed and ready."""
+    if not local_executable().is_file():
+        return False
+    try:
+        return _run_local("--probe", timeout=LOCAL_PROBE_TIMEOUT).returncode == 0
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.warning(f"Transcriber: local probe failed: {e}")
+        return False
+
+
+def transcribe_local(audio_path: Path) -> str:
+    """Use the local edition's CLI and its already configured offline model."""
+    if not local_executable().is_file():
+        raise ValueError(LOCAL_SETUP_HINT)
+    start_time = time.time()
+    try:
+        result = _run_local(
+            "--transcribe", str(audio_path), timeout=LOCAL_TRANSCRIBE_TIMEOUT
+        )
+    except subprocess.TimeoutExpired:
+        # Without a timeout a stuck child would keep the processing counter
+        # above zero forever, which blocks recording and the setup windows.
+        logger.error(
+            f"Transcriber: local recognition timed out "
+            f"after {LOCAL_TRANSCRIBE_TIMEOUT:.0f}s"
+        )
+        raise ValueError(
+            "ローカル認識が時間内に終わりませんでした。もう一度お試しください。"
+        ) from None
+    if result.returncode:
+        # The transcript itself goes to stdout; only log the diagnostics.
+        logger.error(
+            f"Transcriber: local recognition exited with {result.returncode}: "
+            f"{result.stderr.strip()[-500:] or '(no stderr output)'}"
+        )
+        raise ValueError(
+            "ローカル認識に失敗しました。"
+            "VoiceInputLocal のモデル設定を確認してください。"
+        )
+    elapsed = time.time() - start_time
+    logger.info(f"Transcriber: local recognition finished in {elapsed:.2f}s")
+    return result.stdout.strip()
