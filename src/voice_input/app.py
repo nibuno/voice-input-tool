@@ -32,7 +32,14 @@ from .recorder import (
 )
 from .realtime_transcriber import RealtimeTranscriber
 from .restart import schedule_self_restart
-from .transcriber import local_executable, transcribe, transcribe_local
+from .transcriber import (
+    LOCAL_MODEL_HINT,
+    LOCAL_SETUP_HINT,
+    local_executable,
+    local_model_ready,
+    transcribe,
+    transcribe_local,
+)
 from .transcript_overlay import TranscriptOverlay
 
 logger = get_logger()
@@ -139,9 +146,12 @@ class VoiceInputApp(rumps.App):
         self.recognition_menu = rumps.MenuItem("音声認識")
         self._recognition_items = {}
         saved = self._config.get("recognition_backend")
-        self._backend = saved if saved in ("local", "api") else (
-            "local" if local_executable().is_file() and not os.getenv("OPENAI_API_KEY") else "api"
-        )
+        if saved in ("local", "api"):
+            self._backend = saved
+        elif local_executable().is_file() and not os.getenv("OPENAI_API_KEY"):
+            self._backend = "local"
+        else:
+            self._backend = "api"
         for backend, label in (("local", "ローカル（このMac）"), ("api", "OpenAI API")):
             item = rumps.MenuItem(label, callback=self._on_backend_selected)
             item.backend = backend
@@ -210,14 +220,27 @@ class VoiceInputApp(rumps.App):
         ]
         self._input_device_menu_populated = self._populate_input_device_menu()
 
-    def _on_backend_selected(self, sender):
+    def _on_backend_selected(self, sender: rumps.MenuItem) -> None:
         if self.recorder.is_recording or self._processing_count:
             self._notify_error("録音や文字起こしが終わってから切り替えてください。")
             return
-        backend = sender.backend
-        if backend == "local" and not local_executable().is_file():
-            rumps.alert("ローカル認識", "VoiceInputLocal.app をアプリケーションフォルダに入れてください。")
-            return
+        try:
+            self._select_backend(sender.backend)
+        finally:
+            # The dialogs above run their own modal loop, which pauses the
+            # rumps timer. Drop hotkeys pressed while one was open so no
+            # recording starts the moment it closes.
+            self._drain_hotkey_events()
+
+    def _select_backend(self, backend: str) -> None:
+        if backend == "local":
+            if not local_executable().is_file():
+                rumps.alert("ローカル認識", LOCAL_SETUP_HINT)
+                return
+            # Check now, not after the user has already spoken.
+            if not local_model_ready():
+                rumps.alert("ローカル認識", LOCAL_MODEL_HINT)
+                return
         if backend == "api" and not os.getenv("OPENAI_API_KEY"):
             response = rumps.Window(
                 title="OpenAI APIキー",
@@ -232,6 +255,19 @@ class VoiceInputApp(rumps.App):
         self._backend = backend
         for key, item in self._recognition_items.items():
             item.state = int(key == backend)
+
+    def _drain_hotkey_events(self) -> None:
+        """Discard queued hotkey events, keeping everything else in order."""
+        retained = []
+        try:
+            while True:
+                event = self._event_queue.get_nowait()
+                if event not in {"press", "release", "cancel"}:
+                    retained.append(event)
+        except queue.Empty:
+            pass
+        for event in retained:
+            self._event_queue.put(event)
 
     def _on_permission_setup(self, _sender: rumps.MenuItem) -> None:
         from .permission_setup import show_permission_setup
@@ -892,7 +928,9 @@ class VoiceInputApp(rumps.App):
         """Start recording audio."""
         if self._backend == "api" and not os.getenv("OPENAI_API_KEY"):
             self._is_recording = False
-            self._notify_error("「音声認識」から「OpenAI API」を選び、APIキーを入力してください。")
+            self._notify_error(
+                "「音声認識」から「OpenAI API」を選び、APIキーを入力してください。"
+            )
             return
         logger.info("App: Start recording triggered")
 
@@ -1063,9 +1101,13 @@ class VoiceInputApp(rumps.App):
                 audio_path = save_audio(audio_data)
                 text = transcribe_local(audio_path)
             else:
-                text = realtime_transcriber.wait_for_final_transcript() if realtime_transcriber else None
+                text = None
+                if realtime_transcriber is not None:
+                    text = realtime_transcriber.wait_for_final_transcript()
                 if not text:
-                    logger.info("App: Realtime transcript unavailable; using Whisper fallback")
+                    logger.info(
+                        "App: Realtime transcript unavailable; using Whisper fallback"
+                    )
                     audio_path = save_audio(audio_data)
                     text = transcribe(audio_path)
 
