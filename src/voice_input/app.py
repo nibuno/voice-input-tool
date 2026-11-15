@@ -73,11 +73,18 @@ OUTPUT_MODE_NAMES = {
 
 RECORDING_LIMIT_PRESETS = [30.0, 60.0, 120.0, 300.0]
 
+RECOGNITION_BACKEND_NAMES = {
+    "local": "ローカル（このMac）",
+    "api": "OpenAI API",
+}
+
 
 class VoiceInputApp(rumps.App):
     """Mac menu bar application for voice input using Whisper API."""
 
     idle_title = "Voice Input"
+    # Editions with a single backend hide the switch; see LocalVoiceInputApp.
+    recognition_backends = ("local", "api")
 
     def _before_check_events(self) -> None:
         """Edition-specific housekeeping; keep the rumps timer method inherited."""
@@ -151,21 +158,7 @@ class VoiceInputApp(rumps.App):
         # Menu items
         self.status_item = rumps.MenuItem("Status: Ready")
 
-        self.recognition_menu = rumps.MenuItem("音声認識")
-        self._recognition_items = {}
-        saved = self._config.get("recognition_backend")
-        if saved in ("local", "api"):
-            self._backend = saved
-        elif local_executable().is_file() and not os.getenv("OPENAI_API_KEY"):
-            self._backend = "local"
-        else:
-            self._backend = "api"
-        for backend, label in (("local", "ローカル（このMac）"), ("api", "OpenAI API")):
-            item = rumps.MenuItem(label, callback=self._on_backend_selected)
-            item.backend = backend
-            item.state = int(backend == self._backend)
-            self._recognition_items[backend] = item
-            self.recognition_menu.add(item)
+        self.recognition_menu = self._build_recognition_menu()
 
         # Hotkey submenu
         self.hotkey_menu = rumps.MenuItem("Hotkey")
@@ -216,7 +209,6 @@ class VoiceInputApp(rumps.App):
             self.status_item,
             rumps.MenuItem("権限設定...", callback=self._on_permission_setup),
             None,  # Separator
-            self.recognition_menu,
             self.hotkey_menu,
             self.mode_menu,
             self.input_device_menu,
@@ -226,7 +218,37 @@ class VoiceInputApp(rumps.App):
             self.nekochan_item,
             rumps.MenuItem("Language: Japanese"),
         ]
+        if self.recognition_menu is not None:
+            self.menu.insert_before("Hotkey", self.recognition_menu)
         self._input_device_menu_populated = self._populate_input_device_menu()
+
+    def _build_recognition_menu(self) -> rumps.MenuItem | None:
+        """Resolve the backend to start with, and build the switch for it.
+
+        Returns None for an edition that only has one backend, so the menu
+        never offers a backend that edition cannot use.
+        """
+        self._recognition_items: dict[str, rumps.MenuItem] = {}
+        if len(self.recognition_backends) == 1:
+            self._backend = self.recognition_backends[0]
+            return None
+        saved = self._config.get("recognition_backend")
+        if saved in self.recognition_backends:
+            self._backend = saved
+        elif local_executable().is_file() and not os.getenv("OPENAI_API_KEY"):
+            self._backend = "local"
+        else:
+            self._backend = "api"
+        menu = rumps.MenuItem("音声認識")
+        for backend in self.recognition_backends:
+            item = rumps.MenuItem(
+                RECOGNITION_BACKEND_NAMES[backend], callback=self._on_backend_selected
+            )
+            item.backend = backend
+            item.state = int(backend == self._backend)
+            self._recognition_items[backend] = item
+            menu.add(item)
+        return menu
 
     def _on_backend_selected(self, sender: rumps.MenuItem) -> None:
         if self.recorder.is_recording or self._processing_count:

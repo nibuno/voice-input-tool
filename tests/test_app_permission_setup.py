@@ -249,3 +249,20 @@ def test_switch_to_local_is_refused_until_a_model_is_ready(app, monkeypatch):
     assert app._backend == "api"
     assert app._event_queue.get_nowait() == "device_reconnected:Mic"
     assert app._event_queue.empty()
+
+
+def test_single_backend_editions_hide_the_switch(app):
+    from AppKit import NSApplication
+
+    NSApplication.sharedApplication()
+    app._config = {"recognition_backend": "api"}
+
+    assert app._build_recognition_menu() is not None
+    assert set(app._recognition_items) == {"local", "api"}
+    assert app._backend == "api"
+
+    # The local edition only runs on-device (see LocalVoiceInputApp).
+    app.recognition_backends = ("local",)
+    assert app._build_recognition_menu() is None
+    assert app._recognition_items == {}
+    assert app._backend == "local"
