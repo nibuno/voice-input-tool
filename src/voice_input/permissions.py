@@ -112,7 +112,11 @@ def request_permission(
                 )
                 return True
         elif key == "accessibility":
-            check_accessibility_permission(prompt=True)
+            # Pasting posts key events, so ask for post-event access: this is
+            # the call that registers the app in the Accessibility list.
+            from Quartz import CGRequestPostEventAccess
+
+            CGRequestPostEventAccess()
         elif key == "input_monitoring":
             from Quartz import CGRequestListenEventAccess
 
