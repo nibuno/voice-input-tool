@@ -72,7 +72,8 @@ class PermissionSetupController(NSObject):
 
         self.label("音声入力に必要な権限", 24, 445 + extra_height, 592, 30, size=20)
         target = (
-            f"「設定を開く」を押し、システム設定の一覧で {APPLICATION_NAME} をオンにしてください。"
+            f"「設定を開く」を押し、システム設定の一覧で "
+            f"{APPLICATION_NAME} をオンにしてください。"
             if bundled
             else "直接実行では、起動元のターミナルや Python が"
             "許可対象になる場合があります。"
@@ -91,9 +92,13 @@ class PermissionSetupController(NSObject):
             )
 
         if bundled:
-            self.label("権限の一覧にアプリが見つからない場合", 24, 183, 390, 24, size=15)
-            self.label("Finderで選択されたアプリを、権限の一覧にドラッグしてください。",
-                       24, 149, 394, 36, secondary=True)
+            self.label(
+                "権限の一覧にアプリが見つからない場合", 24, 183, 390, 24, size=15
+            )
+            self.label(
+                "Finderで選択されたアプリを、権限の一覧にドラッグしてください。",
+                24, 149, 394, 36, secondary=True,
+            )
             self.button("追加するアプリをFinderで表示", 420, 161, 196, "revealApp:")
 
         self.message = self.label(

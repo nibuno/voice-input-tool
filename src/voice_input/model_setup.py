@@ -141,9 +141,13 @@ class ModelSetupController(NSObject):
         if self.busy and not self.cancel_event.is_set():
             done, total = self.progress_value
             self.progress.setDoubleValue_(done / total)
-            self.status.setStringValue_(
-                f"モデルを準備中… {done / 1_000_000:.0f} / {total / 1_000_000:.0f} MB"
-            )
+            # Until the first bytes arrive, keep the "確認しています…" message:
+            # verifying cached files can take a while and transfers nothing.
+            if done:
+                self.status.setStringValue_(
+                    f"モデルを準備中… {done / 1_000_000:.0f} / "
+                    f"{total / 1_000_000:.0f} MB"
+                )
         try:
             kind, value = self.events.get_nowait()
         except queue.Empty:

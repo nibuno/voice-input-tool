@@ -73,6 +73,7 @@ uv run --no-sync voice-input-local
 ```bash
 uv run --no-sync voice-input-local --download-model --model small
 uv run --no-sync voice-input-local --transcribe sample.wav
+uv run --no-sync voice-input-local --probe  # モデルが使える状態かを確認
 ```
 
 ## 配布ビルド

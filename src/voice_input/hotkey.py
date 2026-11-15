@@ -3,7 +3,16 @@
 from collections.abc import Callable
 
 from pynput import keyboard
-from pynput._util.darwin import ListenerMixin, keycode_context
+
+from .logger import get_logger
+
+try:
+    # Private API: fall back to the stock listener if a pynput update moves it.
+    from pynput._util.darwin import ListenerMixin, keycode_context
+except ImportError:  # pragma: no cover - depends on the installed pynput
+    ListenerMixin = keycode_context = None
+
+logger = get_logger()
 
 # Mapping from config string to pynput key
 HOTKEY_MAP = {
@@ -100,7 +109,14 @@ class HotkeyListener:
 
     def start(self) -> None:
         """Start listening for hotkey events."""
-        self._listener = MacHotkeyListener(
+        listener_class = MacHotkeyListener
+        if keycode_context is None:
+            logger.warning(
+                "HotkeyListener: pynput internals unavailable; "
+                "the keyboard layout is read on the listener thread"
+            )
+            listener_class = keyboard.Listener
+        self._listener = listener_class(
             on_press=self._handle_press,
             on_release=self._handle_release,
         )

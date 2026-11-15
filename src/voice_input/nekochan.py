@@ -216,7 +216,9 @@ class Nekochan:
         emoji_label.setFont_(NSFont.systemFontOfSize_(NEKOCHAN_EMOJI_FONT_SIZE))
         panel.contentView().addSubview_(emoji_label)
 
-        drag_view = NekochanDragView.alloc().initWithFrame_(panel.contentView().bounds())
+        drag_view = NekochanDragView.alloc().initWithFrame_(
+            panel.contentView().bounds()
+        )
         drag_view.nekochan = self
         panel.contentView().addSubview_(drag_view)
 

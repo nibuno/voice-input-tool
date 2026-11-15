@@ -33,6 +33,9 @@ def main():
     parser.add_argument(
         "--transcribe", type=Path, help="Transcribe a mono 16 kHz PCM WAV"
     )
+    parser.add_argument(
+        "--probe", action="store_true", help="Check the selected model is ready"
+    )
     parser.add_argument("--language", default="ja", help="Language for --transcribe")
     parser.add_argument("--self-test", action="store_true", help="Check the built app")
     args = parser.parse_args()
@@ -61,13 +64,20 @@ def main():
         store.download(key, lambda done, total: None, threading.Event())
         print(store.path(key))
         return
+    if args.probe:
+        if not store.ready(key):
+            parser.error("Selected model is not installed yet")
+        print(key)
+        return
     if args.transcribe:
         from scipy.io import wavfile
 
         rate, audio = wavfile.read(args.transcribe)
         if rate != 16000 or audio.ndim != 1:
             parser.error("--transcribe requires a mono 16 kHz WAV file")
-        print(LocalTranscriber(key, store).transcribe(audio, args.language))
+        # A fresh process per utterance cannot afford re-hashing the weights.
+        engine = LocalTranscriber(key, store, verify_files=False)
+        print(engine.transcribe(audio, args.language))
         return
 
     import rumps

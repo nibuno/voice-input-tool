@@ -9,9 +9,20 @@ from .local_models import ModelStore
 
 
 class LocalTranscriber:
-    def __init__(self, key: str = "small", store: ModelStore | None = None):
+    def __init__(
+        self,
+        key: str = "small",
+        store: ModelStore | None = None,
+        *,
+        verify_files: bool = True,
+    ):
         self.key = key
         self.store = store or ModelStore()
+        # Hashing 0.5-1.6 GB once in a long-running app is affordable; doing it
+        # in a short-lived process that runs per utterance is not. ``ready``
+        # still checks every file's size and the pinned revision marker, which
+        # is only written after a fully hash-verified download.
+        self._verify_files = verify_files
         self._verified = False
         self._lock = threading.Lock()
 
@@ -19,7 +30,9 @@ class LocalTranscriber:
         """Accept mono 16 kHz int16 or normalized floating-point PCM."""
         with self._lock:
             if not self._verified:
-                if not self.store.ready(self.key) or not self.store.verify(self.key):
+                if not self.store.ready(self.key) or (
+                    self._verify_files and not self.store.verify(self.key)
+                ):
                     raise ValueError("音声認識モデルを設定画面から再取得してください。")
                 self._verified = True
             # Force the upstream loader offline even if a model is later removed.

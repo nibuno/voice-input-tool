@@ -95,25 +95,24 @@ def test_denied_microphone_opens_settings_instead_of_reprompting(av, monkeypatch
     av.AVCaptureDevice.requestAccessForMediaType_completionHandler_.assert_not_called()
 
 
-@pytest.mark.parametrize(("key", "expected"), [
-    ("accessibility", ["accessibility"]),
-    ("input_monitoring", ["request", "input_monitoring"]),
-])
-def test_open_permission_settings_from_setup(monkeypatch, key, expected):
+@pytest.mark.parametrize("key", ["accessibility", "input_monitoring"])
+def test_request_registers_app_before_opening_settings(monkeypatch, key):
     calls = []
     monkeypatch.setattr(
         permissions, "check_accessibility_permission",
-        lambda prompt: calls.append("request") or False,
+        lambda prompt: calls.append("unexpected") or False,
     )
     monkeypatch.setitem(sys.modules, "Quartz", SimpleNamespace(
-        CGRequestListenEventAccess=lambda: calls.append("request") or False
+        CGRequestListenEventAccess=lambda: calls.append("request") or False,
+        CGRequestPostEventAccess=lambda: calls.append("request") or False,
     ))
     monkeypatch.setattr(
         permissions, "open_permission_settings",
         lambda pane: calls.append(pane) or True,
     )
     assert permissions.request_permission(key)
-    assert calls == expected
+    # Register the app with the OS first, then show the user where to switch it on.
+    assert calls == ["request", key]
 
 
 @pytest.mark.parametrize("completed", [False, True])
