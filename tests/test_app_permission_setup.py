@@ -169,7 +169,9 @@ def test_worker_start_failure_does_not_leave_setup_blocked(app, monkeypatch):
 
 
 @pytest.mark.parametrize("local_failure", [False, True])
-def test_local_backend_never_submits_audio_to_api(app, monkeypatch, tmp_path, local_failure):
+def test_local_backend_never_submits_audio_to_api(
+    app, monkeypatch, tmp_path, local_failure
+):
     app._backend = "local"
     app._output_mode = "copy_paste"
     app._transcript_overlay = Mock()
@@ -180,7 +182,10 @@ def test_local_backend_never_submits_audio_to_api(app, monkeypatch, tmp_path, lo
     wav = tmp_path / "recording.wav"
     wav.touch()
     monkeypatch.setattr(app_module, "save_audio", lambda _: wav)
-    local = Mock(return_value="ローカル", side_effect=ValueError("model") if local_failure else None)
+    local = Mock(
+        return_value="ローカル",
+        side_effect=ValueError("model") if local_failure else None,
+    )
     api = Mock()
     output = Mock()
     monkeypatch.setattr(app_module, "transcribe_local", local)
@@ -203,7 +208,10 @@ def test_switch_persists_only_after_recording_and_processing(app, monkeypatch):
     app._recognition_items = {"api": Mock(), "local": Mock()}
     save = Mock()
     monkeypatch.setattr(app_module, "save_config", save)
-    monkeypatch.setattr(app_module, "local_executable", Mock(return_value=Mock(is_file=lambda: True)))
+    monkeypatch.setattr(
+        app_module, "local_executable", Mock(return_value=Mock(is_file=lambda: True))
+    )
+    monkeypatch.setattr(app_module, "local_model_ready", lambda: True)
     sender = SimpleNamespace(backend="local")
     app.recorder.is_recording = True
     app._on_backend_selected(sender)
@@ -217,3 +225,44 @@ def test_switch_persists_only_after_recording_and_processing(app, monkeypatch):
     assert app._backend == "local"
     assert app._recognition_items["local"].state == 1
     assert app._recognition_items["api"].state == 0
+
+
+def test_switch_to_local_is_refused_until_a_model_is_ready(app, monkeypatch):
+    app._config = {}
+    app._recognition_items = {"api": Mock(), "local": Mock()}
+    save = Mock()
+    alert = Mock()
+    monkeypatch.setattr(app_module, "save_config", save)
+    monkeypatch.setattr(app_module.rumps, "alert", alert)
+    monkeypatch.setattr(
+        app_module, "local_executable", Mock(return_value=Mock(is_file=lambda: True))
+    )
+    monkeypatch.setattr(app_module, "local_model_ready", lambda: False)
+    # A hotkey pressed while the dialog was open must not start a recording.
+    app._event_queue.put("press")
+    app._event_queue.put("device_reconnected:Mic")
+
+    app._on_backend_selected(SimpleNamespace(backend="local"))
+
+    alert.assert_called_once()
+    save.assert_not_called()
+    assert app._backend == "api"
+    assert app._event_queue.get_nowait() == "device_reconnected:Mic"
+    assert app._event_queue.empty()
+
+
+def test_single_backend_editions_hide_the_switch(app):
+    from AppKit import NSApplication
+
+    NSApplication.sharedApplication()
+    app._config = {"recognition_backend": "api"}
+
+    assert app._build_recognition_menu() is not None
+    assert set(app._recognition_items) == {"local", "api"}
+    assert app._backend == "api"
+
+    # The local edition only runs on-device (see LocalVoiceInputApp).
+    app.recognition_backends = ("local",)
+    assert app._build_recognition_menu() is None
+    assert app._recognition_items == {}
+    assert app._backend == "local"

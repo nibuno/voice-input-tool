@@ -21,7 +21,6 @@ OPTIONS = {
         "CFBundleShortVersionString": APP_VERSION,
         "LSUIElement": True,  # Menu bar app (no dock icon)
         "NSMicrophoneUsageDescription": "Voice Input needs microphone access to record audio for transcription.",
-        "NSAppleEventsUsageDescription": "Voice Input needs accessibility access to paste transcribed text.",
     },
     "packages": [
         "rumps",

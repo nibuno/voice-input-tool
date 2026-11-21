@@ -99,6 +99,5 @@ app = BUNDLE(
         "CFBundleShortVersionString": app_version,
         "LSUIElement": True,
         "NSMicrophoneUsageDescription": "Voice Input needs microphone access to record audio for transcription.",
-        "NSAppleEventsUsageDescription": "Voice Input needs accessibility access to paste transcribed text.",
     },
 )

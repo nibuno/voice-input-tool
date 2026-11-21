@@ -5,6 +5,7 @@
 `src/voice_input/__init__.py` の `__version__` を唯一の定義とします。
 Pythonパッケージ、メニュー、CLI、PyInstallerとpy2appのアプリ情報は、
 すべてこの値を参照します。`uv.lock` は `uv lock` で更新します。
+通常版とローカル版は、同じソースの版として同じ番号でリリースします。
 
 番号は `MAJOR.MINOR.PATCH` の3つの整数にします。
 当面は開発中の `0.x.y` とし、不具合修正は `0.1.0 → 0.1.1`、
@@ -24,6 +25,7 @@ Pythonパッケージ、メニュー、CLI、PyInstallerとpy2appのアプリ情
 ```bash
 uv run voice-input --version
 uv run voice-input-app --version
+uv run voice-input-local --version
 ```
 
 ## リリース手順
@@ -45,6 +47,8 @@ uv build
 4. [ビルド手順](build.md) に従って `.app` をビルドします。
    メニューの番号、権限設定、録音、文字起こし、ペーストを確認します。
    ローカル認識には別途、モデルを設定済みの `VoiceInputLocal.app` が必要です。
+   ローカル版も配布する場合は [ローカル版のビルド手順](local-whisper.md#配布ビルド)
+   に従ってビルドし、生成したZIPにもバージョン番号を付けます。
 5. 変更をコミットし、配布するコミットに注釈付きタグを付けます。
    以下の番号は実際のリリースに合わせて変更します。
 

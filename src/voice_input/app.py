@@ -33,7 +33,14 @@ from .recorder import (
 )
 from .realtime_transcriber import RealtimeTranscriber
 from .restart import schedule_self_restart
-from .transcriber import local_executable, transcribe, transcribe_local
+from .transcriber import (
+    LOCAL_MODEL_HINT,
+    LOCAL_SETUP_HINT,
+    local_executable,
+    local_model_ready,
+    transcribe,
+    transcribe_local,
+)
 from .transcript_overlay import TranscriptOverlay
 
 logger = get_logger()
@@ -67,9 +74,21 @@ OUTPUT_MODE_NAMES = {
 
 RECORDING_LIMIT_PRESETS = [30.0, 60.0, 120.0, 300.0]
 
+RECOGNITION_BACKEND_NAMES = {
+    "local": "ローカル（このMac）",
+    "api": "OpenAI API",
+}
+
 
 class VoiceInputApp(rumps.App):
     """Mac menu bar application for voice input using Whisper API."""
+
+    idle_title = "Voice Input"
+    # Editions with a single backend hide the switch; see LocalVoiceInputApp.
+    recognition_backends = ("local", "api")
+
+    def _before_check_events(self) -> None:
+        """Edition-specific housekeeping; keep the rumps timer method inherited."""
 
     def __init__(self, debug: bool = False) -> None:
         super().__init__(
@@ -117,7 +136,10 @@ class VoiceInputApp(rumps.App):
         self._nekochan_enabled = self._config.get("nekochan_enabled") is True
         nekochan_images = self._config.get("nekochan_images")
         self._nekochan = Nekochan(
-            overrides=nekochan_images if isinstance(nekochan_images, dict) else None
+            overrides=nekochan_images if isinstance(nekochan_images, dict) else None,
+            offset=self._config.get("nekochan_offset"),
+            on_moved=self._save_nekochan_offset,
+            display_id=self._config.get("nekochan_display_id"),
         )
         # AppKit windows can only be shown once the run loop has started.
         self._nekochan_show_pending = self._nekochan_enabled
@@ -137,18 +159,7 @@ class VoiceInputApp(rumps.App):
         # Menu items
         self.status_item = rumps.MenuItem("Status: Ready")
 
-        self.recognition_menu = rumps.MenuItem("音声認識")
-        self._recognition_items = {}
-        saved = self._config.get("recognition_backend")
-        self._backend = saved if saved in ("local", "api") else (
-            "local" if local_executable().is_file() and not os.getenv("OPENAI_API_KEY") else "api"
-        )
-        for backend, label in (("local", "ローカル（このMac）"), ("api", "OpenAI API")):
-            item = rumps.MenuItem(label, callback=self._on_backend_selected)
-            item.backend = backend
-            item.state = int(backend == self._backend)
-            self._recognition_items[backend] = item
-            self.recognition_menu.add(item)
+        self.recognition_menu = self._build_recognition_menu()
 
         # Hotkey submenu
         self.hotkey_menu = rumps.MenuItem("Hotkey")
@@ -199,7 +210,6 @@ class VoiceInputApp(rumps.App):
             self.status_item,
             rumps.MenuItem("権限設定...", callback=self._on_permission_setup),
             None,  # Separator
-            self.recognition_menu,
             self.hotkey_menu,
             self.mode_menu,
             self.input_device_menu,
@@ -209,18 +219,61 @@ class VoiceInputApp(rumps.App):
             self.nekochan_item,
             rumps.MenuItem("Language: Japanese"),
             None,
-            rumps.MenuItem(f"Voice Input {__version__}"),
+            rumps.MenuItem(f"{self.idle_title} {__version__}"),
         ]
+        if self.recognition_menu is not None:
+            self.menu.insert_before("Hotkey", self.recognition_menu)
         self._input_device_menu_populated = self._populate_input_device_menu()
 
-    def _on_backend_selected(self, sender):
+    def _build_recognition_menu(self) -> rumps.MenuItem | None:
+        """Resolve the backend to start with, and build the switch for it.
+
+        Returns None for an edition that only has one backend, so the menu
+        never offers a backend that edition cannot use.
+        """
+        self._recognition_items: dict[str, rumps.MenuItem] = {}
+        if len(self.recognition_backends) == 1:
+            self._backend = self.recognition_backends[0]
+            return None
+        saved = self._config.get("recognition_backend")
+        if saved in self.recognition_backends:
+            self._backend = saved
+        elif local_executable().is_file() and not os.getenv("OPENAI_API_KEY"):
+            self._backend = "local"
+        else:
+            self._backend = "api"
+        menu = rumps.MenuItem("音声認識")
+        for backend in self.recognition_backends:
+            item = rumps.MenuItem(
+                RECOGNITION_BACKEND_NAMES[backend], callback=self._on_backend_selected
+            )
+            item.backend = backend
+            item.state = int(backend == self._backend)
+            self._recognition_items[backend] = item
+            menu.add(item)
+        return menu
+
+    def _on_backend_selected(self, sender: rumps.MenuItem) -> None:
         if self.recorder.is_recording or self._processing_count:
             self._notify_error("録音や文字起こしが終わってから切り替えてください。")
             return
-        backend = sender.backend
-        if backend == "local" and not local_executable().is_file():
-            rumps.alert("ローカル認識", "VoiceInputLocal.app をアプリケーションフォルダに入れてください。")
-            return
+        try:
+            self._select_backend(sender.backend)
+        finally:
+            # The dialogs above run their own modal loop, which pauses the
+            # rumps timer. Drop hotkeys pressed while one was open so no
+            # recording starts the moment it closes.
+            self._drain_hotkey_events()
+
+    def _select_backend(self, backend: str) -> None:
+        if backend == "local":
+            if not local_executable().is_file():
+                rumps.alert("ローカル認識", LOCAL_SETUP_HINT)
+                return
+            # Check now, not after the user has already spoken.
+            if not local_model_ready():
+                rumps.alert("ローカル認識", LOCAL_MODEL_HINT)
+                return
         if backend == "api" and not os.getenv("OPENAI_API_KEY"):
             response = rumps.Window(
                 title="OpenAI APIキー",
@@ -235,6 +288,19 @@ class VoiceInputApp(rumps.App):
         self._backend = backend
         for key, item in self._recognition_items.items():
             item.state = int(key == backend)
+
+    def _drain_hotkey_events(self) -> None:
+        """Discard queued hotkey events, keeping everything else in order."""
+        retained = []
+        try:
+            while True:
+                event = self._event_queue.get_nowait()
+                if event not in {"press", "release", "cancel"}:
+                    retained.append(event)
+        except queue.Empty:
+            pass
+        for event in retained:
+            self._event_queue.put(event)
 
     def _on_permission_setup(self, _sender: rumps.MenuItem) -> None:
         from .permission_setup import show_permission_setup
@@ -386,6 +452,13 @@ class VoiceInputApp(rumps.App):
         save_config(self._config)
         logger.info(f"App: Output mode changed to {mode_id}")
 
+    def _save_nekochan_offset(
+        self, offset: tuple[float, float], display_id: int | None
+    ) -> None:
+        self._config["nekochan_display_id"] = display_id
+        self._config["nekochan_offset"] = list(offset)
+        save_config(self._config)
+
     def _on_nekochan_toggled(self, sender: rumps.MenuItem) -> None:
         """Show or hide Nekochan."""
         self._nekochan_enabled = not self._nekochan_enabled
@@ -528,6 +601,7 @@ class VoiceInputApp(rumps.App):
     @rumps.timer(0.05)
     def _check_events(self, _sender: object) -> None:
         """Poll for hotkey events from the queue."""
+        self._before_check_events()
         if self._nekochan_show_pending:
             self._nekochan_show_pending = False
             self._nekochan.show()
@@ -603,7 +677,7 @@ class VoiceInputApp(rumps.App):
                     ).start()
                 elif event.startswith("device_disconnected:"):
                     device_name = event[len("device_disconnected:"):]
-                    self.title = "Voice Input"
+                    self.title = self.idle_title
                     self.status_item.title = "Status: Ready (default mic)"
                     self._notify_error(
                         f"マイク「{device_name}」が切断されました。"
@@ -611,7 +685,7 @@ class VoiceInputApp(rumps.App):
                     )
                 elif event.startswith("device_reconnected:"):
                     device_name = event[len("device_reconnected:"):]
-                    self.title = "Voice Input"
+                    self.title = self.idle_title
                     self.status_item.title = "Status: Ready"
                     logger.info(f"App: '{device_name}' reconnected and ready")
                 elif event.startswith("nekochan:"):
@@ -627,7 +701,7 @@ class VoiceInputApp(rumps.App):
                     )
                     if next_nekochan_state != self._nekochan.state:
                         self._set_nekochan_state(next_nekochan_state)
-                    self.title = "Voice Input"
+                    self.title = self.idle_title
                     self.status_item.title = f"Status: {status}"
                 elif event.startswith("transcript:"):
                     _, session_id, text = event.split(":", 2)
@@ -644,7 +718,7 @@ class VoiceInputApp(rumps.App):
                         self._transcript_overlay.hide()
                 elif event.startswith("error:"):
                     message = event[6:]
-                    self.title = "Voice Input"
+                    self.title = self.idle_title
                     self.status_item.title = "Status: Error"
                     self._set_nekochan_state(NekochanState.SAD)
                     self._notify_error(message)
@@ -696,7 +770,7 @@ class VoiceInputApp(rumps.App):
             logger.warning(f"App: stop() during stall recovery raised: {e}")
         # Tell the user their recording was lost — the "Processing..." UI
         # they were about to see will not have any text to paste.
-        self.title = "Voice Input"
+        self.title = self.idle_title
         self.status_item.title = "Status: Ready (stall recovered)"
         self._notify_error(
             "マイクが応答しなくなったため録音を破棄しました。もう一度お試しください。"
@@ -723,7 +797,7 @@ class VoiceInputApp(rumps.App):
         self._stop_realtime_overlay()
         self.recorder.cleanup()
         self._set_nekochan_state(NekochanState.IDLE)
-        self.title = "Voice Input"
+        self.title = self.idle_title
         self.status_item.title = "Status: Sleeping..."
 
     def _on_system_wake(self) -> None:
@@ -888,14 +962,16 @@ class VoiceInputApp(rumps.App):
             self._event_queue.put(f"error:{exc}")
             return
 
-        self.title = "Voice Input"
+        self.title = self.idle_title
         self.status_item.title = "Status: Ready"
 
     def _start_recording(self) -> None:
         """Start recording audio."""
         if self._backend == "api" and not os.getenv("OPENAI_API_KEY"):
             self._is_recording = False
-            self._notify_error("「音声認識」から「OpenAI API」を選び、APIキーを入力してください。")
+            self._notify_error(
+                "「音声認識」から「OpenAI API」を選び、APIキーを入力してください。"
+            )
             return
         logger.info("App: Start recording triggered")
 
@@ -1066,9 +1142,13 @@ class VoiceInputApp(rumps.App):
                 audio_path = save_audio(audio_data)
                 text = transcribe_local(audio_path)
             else:
-                text = realtime_transcriber.wait_for_final_transcript() if realtime_transcriber else None
+                text = None
+                if realtime_transcriber is not None:
+                    text = realtime_transcriber.wait_for_final_transcript()
                 if not text:
-                    logger.info("App: Realtime transcript unavailable; using Whisper fallback")
+                    logger.info(
+                        "App: Realtime transcript unavailable; using Whisper fallback"
+                    )
                     audio_path = save_audio(audio_data)
                     text = transcribe(audio_path)
 
