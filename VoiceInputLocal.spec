@@ -3,9 +3,11 @@
 
 import os
 from pathlib import Path
+from runpy import run_path
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 root = Path(SPECPATH)
+app_version = run_path(str(root / "src/voice_input/__init__.py"))["__version__"]
 datas = collect_data_files("mlx_whisper", includes=["assets/*"])
 datas += collect_data_files("mlx", includes=["lib/*.metallib"])
 datas += [(str(root / "build/local-notices"), "notices")]
@@ -39,7 +41,7 @@ app = BUNDLE(
     coll, name="VoiceInputLocal.app", bundle_identifier="dev.nibuno.voiceinput.local",
     info_plist={
         "CFBundleName": "VoiceInput Local", "CFBundleDisplayName": "VoiceInput Local",
-        "CFBundleVersion": "0.1.0", "CFBundleShortVersionString": "0.1.0",
+        "CFBundleVersion": app_version, "CFBundleShortVersionString": app_version,
         "LSMinimumSystemVersion": "15.0", "LSUIElement": True,
         "NSMicrophoneUsageDescription": "音声をMac内で文字に変換するためにマイクを使用します。",
     },

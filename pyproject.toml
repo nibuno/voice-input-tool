@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "voice-input-tool"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Voice input tool using OpenAI Whisper API"
 requires-python = ">=3.13"
 dependencies = [
@@ -36,6 +36,9 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/voice_input"]
+
+[tool.hatch.version]
+path = "src/voice_input/__init__.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

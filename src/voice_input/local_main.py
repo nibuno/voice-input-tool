@@ -6,6 +6,7 @@ import os
 import platform
 from pathlib import Path
 
+from . import __version__
 from .local_models import MODELS, ModelStore
 from .local_paths import DATA_DIR
 
@@ -20,6 +21,9 @@ def configure_local_storage():
 
 def main():
     parser = argparse.ArgumentParser(description="VoiceInput Local — offline Whisper")
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--setup", action="store_true", help="Open permission settings")
     parser.add_argument("--models", action="store_true", help="Open model settings")

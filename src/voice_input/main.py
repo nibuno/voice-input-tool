@@ -5,6 +5,7 @@ import os
 
 from dotenv import load_dotenv
 
+from . import __version__
 from .output import output_text
 from .recorder import record_and_save
 from .transcriber import transcribe
@@ -16,6 +17,9 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         description="Record voice and transcribe to text using Whisper API"
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
     )
     parser.add_argument(
         "-d",

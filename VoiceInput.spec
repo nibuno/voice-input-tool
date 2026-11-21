@@ -1,13 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec file for Voice Input app."""
 
-import sys
+from runpy import run_path
 from pathlib import Path
 
 block_cipher = None
 
 # Add src to path for imports
-src_path = Path("src").absolute()
+src_path = Path(SPECPATH) / "src"
+app_version = run_path(str(src_path / "voice_input" / "__init__.py"))["__version__"]
 
 a = Analysis(
     ["src/voice_input/__main__.py"],
@@ -94,8 +95,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleName": "VoiceInput",
         "CFBundleDisplayName": "Voice Input",
-        "CFBundleVersion": "0.1.0",
-        "CFBundleShortVersionString": "0.1.0",
+        "CFBundleVersion": app_version,
+        "CFBundleShortVersionString": app_version,
         "LSUIElement": True,
         "NSMicrophoneUsageDescription": "Voice Input needs microphone access to record audio for transcription.",
     },
