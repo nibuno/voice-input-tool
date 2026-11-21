@@ -211,6 +211,12 @@ uv run pyinstaller VoiceInput.spec -y
 
 詳細は [docs/build.md](docs/build.md) を参照してください。
 
+## バージョンと更新履歴
+
+現在の番号はメニュー末尾、または `uv run voice-input-app --version` で確認できます。
+変更内容は [更新履歴](CHANGELOG.md)、番号の更新・タグ付け・配布の手順は
+[バージョンとリリース](docs/releases.md) を参照してください。
+
 ## コスト
 
 OpenAI Whisper APIの料金は$0.006/分です。月100分使用しても約$0.60と、非常に低コストで運用できます。

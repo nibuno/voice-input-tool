@@ -1,6 +1,13 @@
 """Setup script for py2app to create a macOS application bundle."""
 
+from pathlib import Path
+from runpy import run_path
+
 from setuptools import setup
+
+APP_VERSION = run_path(
+    str(Path(__file__).parent / "src" / "voice_input" / "__init__.py")
+)["__version__"]
 
 APP = ["src/voice_input/app.py"]
 DATA_FILES = []
@@ -10,8 +17,8 @@ OPTIONS = {
         "CFBundleName": "VoiceInput",
         "CFBundleDisplayName": "Voice Input",
         "CFBundleIdentifier": "com.voiceinput.app",
-        "CFBundleVersion": "0.1.0",
-        "CFBundleShortVersionString": "0.1.0",
+        "CFBundleVersion": APP_VERSION,
+        "CFBundleShortVersionString": APP_VERSION,
         "LSUIElement": True,  # Menu bar app (no dock icon)
         "NSMicrophoneUsageDescription": "Voice Input needs microphone access to record audio for transcription.",
         "NSAppleEventsUsageDescription": "Voice Input needs accessibility access to paste transcribed text.",

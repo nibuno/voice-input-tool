@@ -14,6 +14,9 @@ uv run pyinstaller VoiceInput.spec
 
 ビルド後、`dist/VoiceInput.app` が作成される。
 
+アプリのバージョン番号は `src/voice_input/__init__.py` から自動で取得する。
+番号の更新と配布は [リリース手順](releases.md) を参照。
+
 ### 起動テスト
 
 ```bash

@@ -11,6 +11,7 @@ import openai
 import rumps
 import sounddevice as sd
 
+from . import __version__
 from .config import (
     VALID_OUTPUT_MODES,
     VALID_RMS_THRESHOLDS,
@@ -207,6 +208,8 @@ class VoiceInputApp(rumps.App):
             self.output_menu,
             self.nekochan_item,
             rumps.MenuItem("Language: Japanese"),
+            None,
+            rumps.MenuItem(f"Voice Input {__version__}"),
         ]
         self._input_device_menu_populated = self._populate_input_device_menu()
 
@@ -1157,6 +1160,9 @@ def main() -> None:
     from .logger import set_console_log_level
 
     parser = argparse.ArgumentParser(description="Voice Input - Mac menu bar app")
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
     parser.add_argument(
         "--setup", action="store_true",
